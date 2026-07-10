@@ -1,0 +1,335 @@
+---
+title: "Body condition"
+author: "Gabriel Melhado"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load libraries
+pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB)
+```
+
+
+```{r}
+# Read dataset
+data <- read.csv("dataset.csv")
+```
+
+```{r}
+# Sex ratio per treatment
+sex_ratio_treatment <- data %>%
+  group_by(treatment, sex) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(
+    names_from = sex,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(
+    total = female + male,
+    prop_female = female / total,
+    prop_male = male / total,
+    sex_ratio = paste0(male, ":", female)
+  )
+
+sex_ratio_treatment
+```
+```{r}
+# Sex ratio per fish tank
+sex_ratio_tank <- data %>%
+  group_by(treatment, tank_id, sex) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(
+    names_from = sex,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(
+    total = female + male,
+    prop_female = female / total,
+    prop_male = male / total,
+    sex_ratio = paste0(male, ":", female)
+  ) %>%
+  arrange(treatment, tank_id)
+
+sex_ratio_tank
+
+```
+
+
+```{r}
+# Prepare variables
+#---------------------------------------------------------
+
+data <- data %>%
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("control", "low", "high")
+    ),
+    sex = factor(
+      sex,
+      levels = c("female", "male")
+    ),
+    tank_id = factor(tank_id),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+```
+
+
+```{r}
+# Create long-format dataset for repeated body mass
+
+mass_long <- data %>%
+  select(
+    fish_id,
+    tank_id,
+    treatment,
+    sex,
+    body_length,
+    body_mass_before,
+    body_mass_after
+  ) %>%
+  pivot_longer(
+    cols = c(body_mass_before, body_mass_after),
+    names_to = "time",
+    values_to = "body_mass"
+  ) %>%
+  mutate(
+    time = factor(
+      time,
+      levels = c("body_mass_before", "body_mass_after"),
+      labels = c("Before LPS", "After LPS")
+    ),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+summary(mass_long$body_mass)
+
+```
+
+```{r}
+# Mixed model: body mass before vs after LPS
+
+m_mass_time <- lmer(
+  body_mass ~ time * treatment * sex + (1 | fish_id),
+  data = mass_long,
+  REML = FALSE
+)
+
+summary(m_mass_time)
+isSingular(m_mass_time)
+
+par(mfrow = c(2,2))
+plot(m_mass_time)
+qqnorm(residuals(m_mass_time))
+qqline(residuals(m_mass_time))
+hist(residuals(m_mass_time))
+
+Anova(m_mass_time, type = "III")
+
+emm_mass_time <- emmeans(
+  m_mass_time,
+  ~ time | treatment
+)
+
+emm_mass_time
+
+pairs(
+  emm_mass_time,
+  adjust = "tukey"
+)
+
+emmeans(
+  m_mass_time,
+  pairwise ~ time | treatment * sex,
+  adjust = "tukey"
+)
+
+```
+
+```{r}
+#---------------------------------------------------------
+# Estimated marginal means for body mass before vs after LPS
+#---------------------------------------------------------
+
+emm_mass_plot_df <- as.data.frame(
+  emmeans(
+    m_mass_time,
+    ~ time | treatment
+  )
+)
+
+emm_mass_plot_df <- emm_mass_plot_df %>%
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("control", "low", "high")
+    ),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    time = factor(
+      time,
+      levels = c("Before LPS", "After LPS")
+    )
+  )
+
+#---------------------------------------------------------
+# Colour palettes
+#---------------------------------------------------------
+
+pastel_cols <- c(
+  "Control" = "#A8D5BA",
+  "Low"     = "#F9E79F",
+  "High"    = "#F5B7B1"
+)
+
+dark_cols <- c(
+  "Control" = "#2E8B57",
+  "Low"     = "#C9A227",
+  "High"    = "#B22222"
+)
+
+#---------------------------------------------------------
+# Plot
+#---------------------------------------------------------
+
+p_mass_lps <- ggplot() +
+
+  # Raw paired individual trajectories
+  geom_line(
+    data = mass_long,
+    aes(
+      x = time,
+      y = body_mass,
+      group = fish_id
+    ),
+    alpha = 0.12,
+    linewidth = 0.4,
+    colour = "grey40"
+  ) +
+
+  geom_point(
+    data = mass_long,
+    aes(
+      x = time,
+      y = body_mass,
+      colour = treatment_plot
+    ),
+    alpha = 0.35,
+    size = 1.8,
+    position = position_jitter(width = 0.05, height = 0)
+  ) +
+
+  # Model-estimated means connected by treatment
+  geom_line(
+    data = emm_mass_plot_df,
+    aes(
+      x = time,
+      y = emmean,
+      group = treatment_plot,
+      colour = treatment_plot
+    ),
+    linewidth = 1.4
+  ) +
+
+  geom_errorbar(
+    data = emm_mass_plot_df,
+    aes(
+      x = time,
+      ymin = lower.CL,
+      ymax = upper.CL,
+      colour = treatment_plot
+    ),
+    width = 0.08,
+    linewidth = 1.1
+  ) +
+
+  geom_point(
+    data = emm_mass_plot_df,
+    aes(
+      x = time,
+      y = emmean,
+      fill = treatment_plot
+    ),
+    shape = 21,
+    size = 5,
+    stroke = 1.1,
+    colour = "black"
+  ) +
+
+  facet_wrap(~ treatment_plot) +
+
+  scale_colour_manual(values = dark_cols) +
+  scale_fill_manual(values = pastel_cols) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(6),
+    expand = expansion(mult = c(0.02, 0.06))
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Body mass (g)"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_mass_lps)
+
+#---------------------------------------------------------
+# Save for conference slide
+#---------------------------------------------------------
+
+ggsave(
+  filename = here("figures", "body_mass_before_after_LPS.pdf"),
+  plot = p_mass_lps,
+  width = 8,
+  height = 4.8
+)
+
+ggsave(
+  filename = here("figures", "body_mass_before_after_LPS.jpg"),
+  plot = p_mass_lps,
+  width = 8,
+  height = 4.8,
+  dpi = 600
+)
+```
+

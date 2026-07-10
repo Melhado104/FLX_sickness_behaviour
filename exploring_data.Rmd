@@ -1,0 +1,216 @@
+---
+title: "Exploring_data"
+author: "Gabriel Melhado"
+date: "2025-08-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load libraries
+pacman::p_load(dplyr, ggplot2, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa)
+```
+
+```{r}
+# Read dataset
+df <- read.csv("Data_batches.csv")
+```
+
+```{r}
+# Summary stats for numeric traits by treatment
+summary_stats <- df %>%
+  group_by(treatment) %>%
+  summarise(
+    n_fish = n(),
+    mean_mass1 = mean(Body_mass1, na.rm = TRUE),
+    sd_mass1   = sd(Body_mass1, na.rm = TRUE),
+    mean_mass2 = mean(body_mass2, na.rm = TRUE),
+    sd_mass2   = sd(body_mass2, na.rm = TRUE),
+    mean_length = mean(body_length, na.rm = TRUE),
+    sd_length   = sd(body_length, na.rm = TRUE)
+  )
+
+print(summary_stats)
+
+# Count of males and females per treatment
+sex_counts <- df %>%
+  group_by(treatment, sex) %>%
+  summarise(n = n()) %>%
+  tidyr::pivot_wider(names_from = sex, values_from = n, values_fill = 0)
+
+print(sex_counts)
+
+# Overall descriptive stats for all numeric variables
+overall_summary <- df %>%
+  summarise(
+    mean_mass1 = mean(Body_mass1, na.rm = TRUE),
+    sd_mass1   = sd(Body_mass1, na.rm = TRUE),
+    mean_mass2 = mean(body_mass2, na.rm = TRUE),
+    sd_mass2   = sd(body_mass2, na.rm = TRUE),
+    mean_length = mean(body_length, na.rm = TRUE),
+    sd_length   = sd(body_length, na.rm = TRUE)
+  )
+
+print(overall_summary)
+```
+
+```{r}
+# Boxplot: Body mass before LPS injection
+ggplot(df, aes(x = treatment, y = Body_mass1, fill = treatment)) +
+  geom_boxplot() +
+  labs(title = "Body mass before LPS injection",
+       x = "Treatment",
+       y = "Body mass (g)") +
+  theme_minimal()
+```
+
+```{r}
+# Boxplot: Body mass after LPS injection
+ggplot(df, aes(x = treatment, y = body_mass2, fill = treatment)) +
+  geom_boxplot() +
+  labs(title = "Body mass after LPS injection",
+       x = "Treatment",
+       y = "Body mass (g)") +
+  theme_minimal()
+```
+
+```{r}
+# Boxplot: Body length
+ggplot(df, aes(x = treatment, y = body_length, fill = treatment)) +
+  geom_boxplot() +
+  labs(title = "Body length",
+       x = "Treatment",
+       y = "Body length (cm)") +
+  theme_minimal()
+```
+
+```{r}
+# Reshape data into long format
+df_long <- df %>%
+  pivot_longer(cols = c(Body_mass1, body_mass2),
+               names_to = "measurement",
+               values_to = "mass")
+
+# Create boxplot
+ggplot(df_long, aes(x = treatment, y = mass, fill = measurement)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +
+  labs(title = "Body mass before and after LPS injection",
+       x = "Treatment",
+       y = "Body mass (g)",
+       fill = "Measurement") +
+  theme_minimal()
+```
+
+```{r}
+# Reshape data into long format
+df_long <- df %>%
+  pivot_longer(cols = c(Body_mass1, body_mass2),
+               names_to = "measurement",
+               values_to = "mass")
+
+# Boxplot split by sex
+ggplot(df_long, aes(x = treatment, y = mass, fill = measurement)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +
+  facet_wrap(~ sex) +
+  labs(title = "Body mass before and after LPS injection by sex",
+       x = "Treatment",
+       y = "Body mass (g)",
+       fill = "Measurement") +
+  theme_minimal()
+```
+
+```{r}
+# Factor setup (set your preferred reference levels)
+df <- df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control","low","high")),
+    sex       = factor(sex),
+    tank      = factor(tank),
+    fish_id   = factor(fish_id)
+  )
+
+# For Type-III tests, use sum-to-zero contrasts
+options(contrasts = c("contr.sum", "contr.poly"))
+```
+
+```{r}
+# =========================
+# 1) Repeated-measures LMM
+# =========================
+# Long format (before/after)
+df_long <- df %>%
+  pivot_longer(
+    cols = c(Body_mass1, body_mass2),
+    names_to = "measurement",
+    values_to = "mass"
+  ) %>%
+  mutate(measurement = factor(measurement, levels = c("Body_mass1","body_mass2")))
+
+# Model: mass ~ treatment * measurement * sex + random intercepts for tank and fish
+mod_rep <- lmer(mass ~ treatment * measurement * sex + (1|tank) + (1|fish_id),
+                data = df_long, REML = TRUE)
+
+# Summary & Type-III ANOVA
+summary(mod_rep)
+anova(mod_rep, type = 3)
+
+# R2 (marginal/conditional)
+performance::r2(mod_rep)
+
+# Post-hoc EMMeans
+# a) Treatment differences within each measurement & sex
+emm_treat_by_meas_sex <- emmeans(mod_rep, ~ treatment | measurement * sex)
+pairs(emm_treat_by_meas_sex, adjust = "tukey")
+
+# b) Before vs After (measurement) within each treatment & sex
+emm_meas_by_treat_sex <- emmeans(mod_rep, ~ measurement | treatment * sex)
+pairs(emm_meas_by_treat_sex, adjust = "tukey")
+
+# Simple plot of marginal means (mean ± SE)
+emmip(mod_rep, treatment ~ measurement | sex, CIs = TRUE)
+```
+
+```{r}
+# Simulate scaled residuals
+res_rep <- simulateResiduals(fittedModel = mod_rep, n = 2000)
+
+# 1) Core DHARMa plots (QQ-uniformity, resid vs fitted, etc.)
+plot(res_rep)
+
+# 2) Formal tests
+testUniformity(res_rep)   # want non-significant
+testDispersion(res_rep)   # mainly for non-Gaussian, but fine to check
+testOutliers(res_rep)
+
+# 3) Residuals vs key predictors (look for trends / heteroskedasticity)
+plotResiduals(res_rep, df_long$treatment,   main = "Residuals vs treatment")
+plotResiduals(res_rep, df_long$measurement, main = "Residuals vs measurement")
+plotResiduals(res_rep, df_long$sex,         main = "Residuals vs sex")
+plotResiduals(res_rep, df_long$body_length, main = "Residuals vs body_length")
+
+# 4) Residual distribution across random-effect levels
+boxplot(res_rep$scaledResiduals ~ df_long$tank, las = 2,
+        main = "Scaled residuals by tank", ylab = "Scaled residuals")
+
+# ---- Save plots (optional) ----
+png("DHARMa_rep_core.png", width = 1200, height = 900, res = 120)
+plot(res_rep)
+dev.off()
+
+png("DHARMa_rep_by_predictor.png", width = 1400, height = 1200, res = 130)
+par(mfrow = c(2,2))
+plotResiduals(res_rep, df_long$treatment,   main = "Residuals vs treatment")
+plotResiduals(res_rep, df_long$measurement, main = "Residuals vs measurement")
+plotResiduals(res_rep, df_long$sex,         main = "Residuals vs sex")
+plotResiduals(res_rep, df_long$body_length, main = "Residuals vs body_length")
+dev.off()
+
+png("DHARMa_rep_by_tank.png", width = 1400, height = 600, res = 130)
+boxplot(res_rep$scaledResiduals ~ df_long$tank, las = 2,
+        main = "Scaled residuals by tank", ylab = "Scaled residuals")
+dev.off()
+```
+
