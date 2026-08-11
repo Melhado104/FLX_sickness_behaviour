@@ -20,6 +20,9 @@ pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTes
 data <- read.csv("dataset.csv")
 ```
 
+
+## Checking sex ratio per treatment
+
 ```{r}
 # Sex ratio per treatment
 sex_ratio_treatment <- data %>%
@@ -39,6 +42,9 @@ sex_ratio_treatment <- data %>%
 
 sex_ratio_treatment
 ```
+
+## Checking sex ratio per fish tank
+
 ```{r}
 # Sex ratio per fish tank
 sex_ratio_tank <- data %>%
@@ -64,8 +70,6 @@ sex_ratio_tank
 
 ```{r}
 # Prepare variables
-#---------------------------------------------------------
-
 data <- data %>%
   mutate(
     treatment = factor(
@@ -132,6 +136,9 @@ summary(mass_long$body_mass)
 
 ```
 
+## Tank variance = 0 and model is singular. Therefore, tank_id was removed from the random-effects structure.
+### Testing full model
+
 ```{r}
 # Mixed model: body mass before vs after LPS
 
@@ -172,24 +179,116 @@ emmeans(
 
 ```
 
-```{r}
-#---------------------------------------------------------
-# Estimated marginal means for body mass before vs after LPS
-#---------------------------------------------------------
+## Reduced model: all 2-way interactions
 
-emm_mass_plot_df <- as.data.frame(
-  emmeans(
-    m_mass_time,
-    ~ time | treatment
-  )
+```{r}
+m_mass_2way <- lmer(
+  body_mass ~
+    time + treatment + sex +
+    time:treatment +
+    time:sex +
+    treatment:sex +
+    (1 | fish_id),
+  data = mass_long,
+  REML = FALSE
 )
 
-emm_mass_plot_df <- emm_mass_plot_df %>%
+summary(m_mass_2way)
+
+# Compare the models
+anova(m_mass_2way, m_mass_time)
+```
+
+## Testing the 2-way interactions
+
+```{r}
+# 1. Remove time × treatment
+m_mass_no_time_treatment <- update(
+  m_mass_2way,
+  . ~ . - time:treatment
+)
+
+anova(m_mass_no_time_treatment, m_mass_2way)
+
+
+# 2. Remove time × sex
+m_mass_no_time_sex <- update(
+  m_mass_2way,
+  . ~ . - time:sex
+)
+
+anova(m_mass_no_time_sex, m_mass_2way)
+
+
+# 3. Remove treatment × sex
+m_mass_no_treatment_sex <- update(
+  m_mass_2way,
+  . ~ . - treatment:sex
+)
+
+anova(m_mass_no_treatment_sex, m_mass_2way)
+```
+
+## Main effects model: the final model
+
+```{r}
+m_mass_additive <- lmer(
+  body_mass ~ time + treatment + sex +
+    (1 | fish_id),
+  data = mass_long,
+  REML = FALSE
+)
+
+summary(m_mass_additive)
+
+# Diagnostics
+res_mass <- simulateResiduals(
+  fittedModel = m_mass_additive,
+  n = 1000
+)
+plot(res_mass)
+testDispersion(res_mass)
+testOutliers(res_mass)
+testUniformity(res_mass)
+
+# Overall tests of fixed effects
+anova(m_mass_additive, type = 3)
+
+anova(m_mass_additive, m_mass_2way)
+```
+
+## Calculating the effect sizes (emmeans)
+
+```{r}
+# Estimated marginal means for time
+emm_mass_time <- emmeans(m_mass_additive, ~ time)
+emm_mass_time
+
+# Before vs after LPS
+pairs(emm_mass_time)
+
+
+# Estimated marginal means for sex
+emm_mass_sex <- emmeans(m_mass_additive, ~ sex)
+emm_mass_sex
+
+# Female vs male
+pairs(emm_mass_sex)
+
+
+# Estimated marginal means for treatment
+emm_mass_treatment <- emmeans(m_mass_additive, ~ treatment)
+emm_mass_treatment
+```
+
+
+
+## Plotting body-condition before and after injection across treatments
+
+```{r}
+# Prepare raw data for plotting
+mass_long <- mass_long %>%
   mutate(
-    treatment = factor(
-      treatment,
-      levels = c("control", "low", "high")
-    ),
     treatment_plot = factor(
       treatment,
       levels = c("control", "low", "high"),
@@ -201,10 +300,30 @@ emm_mass_plot_df <- emm_mass_plot_df %>%
     )
   )
 
-#---------------------------------------------------------
-# Colour palettes
-#---------------------------------------------------------
 
+# Estimated marginal means from final model
+emm_mass_plot_df <- as.data.frame(
+  emmeans(
+    m_mass_additive,
+    ~ time | treatment
+  )
+)
+
+emm_mass_plot_df <- emm_mass_plot_df %>%
+  mutate(
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    time = factor(
+      time,
+      levels = c("Before LPS", "After LPS")
+    )
+  )
+
+
+# Colour palettes
 pastel_cols <- c(
   "Control" = "#A8D5BA",
   "Low"     = "#F9E79F",
@@ -217,10 +336,8 @@ dark_cols <- c(
   "High"    = "#B22222"
 )
 
-#---------------------------------------------------------
-# Plot
-#---------------------------------------------------------
 
+# Plot
 p_mass_lps <- ggplot() +
 
   # Raw paired individual trajectories
@@ -236,6 +353,7 @@ p_mass_lps <- ggplot() +
     colour = "grey40"
   ) +
 
+  # Raw observations
   geom_point(
     data = mass_long,
     aes(
@@ -248,7 +366,7 @@ p_mass_lps <- ggplot() +
     position = position_jitter(width = 0.05, height = 0)
   ) +
 
-  # Model-estimated means connected by treatment
+  # Estimated marginal means
   geom_line(
     data = emm_mass_plot_df,
     aes(
@@ -260,6 +378,7 @@ p_mass_lps <- ggplot() +
     linewidth = 1.4
   ) +
 
+  # 95% CI
   geom_errorbar(
     data = emm_mass_plot_df,
     aes(
@@ -313,9 +432,7 @@ p_mass_lps <- ggplot() +
 
 print(p_mass_lps)
 
-#---------------------------------------------------------
-# Save for conference slide
-#---------------------------------------------------------
+# Save
 
 ggsave(
   filename = here("figures", "body_mass_before_after_LPS.pdf"),
@@ -331,5 +448,156 @@ ggsave(
   height = 4.8,
   dpi = 600
 )
+```
+
+## Body condition sorted by sex
+
+```{r}
+# Prepare raw data for plotting
+mass_long <- mass_long %>%
+  mutate(
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    ),
+    time = factor(
+      time,
+      levels = c("Before LPS", "After LPS")
+    )
+  )
+
+
+# Estimated marginal means from final model
+emm_mass_sex_plot_df <- as.data.frame(
+  emmeans(
+    m_mass_additive,
+    ~ time | sex
+  )
+)
+
+emm_mass_sex_plot_df <- emm_mass_sex_plot_df %>%
+  mutate(
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    ),
+    time = factor(
+      time,
+      levels = c("Before LPS", "After LPS")
+    )
+  )
+
+
+# Colour palettes
+pastel_sex_cols <- c(
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
+dark_sex_cols <- c(
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
+
+
+# Plot
+p_mass_sex <- ggplot() +
+
+  # Raw paired individual trajectories
+  geom_line(
+    data = mass_long,
+    aes(
+      x = time,
+      y = body_mass,
+      group = fish_id
+    ),
+    alpha = 0.12,
+    linewidth = 0.4,
+    colour = "grey40"
+  ) +
+
+  # Raw observations
+  geom_point(
+    data = mass_long,
+    aes(
+      x = time,
+      y = body_mass,
+      colour = sex_plot
+    ),
+    alpha = 0.35,
+    size = 1.8,
+    position = position_jitter(width = 0.05, height = 0)
+  ) +
+
+  # Model-estimated means
+  geom_line(
+    data = emm_mass_sex_plot_df,
+    aes(
+      x = time,
+      y = emmean,
+      group = sex_plot,
+      colour = sex_plot
+    ),
+    linewidth = 1.4
+  ) +
+
+  # 95% confidence intervals
+  geom_errorbar(
+    data = emm_mass_sex_plot_df,
+    aes(
+      x = time,
+      ymin = lower.CL,
+      ymax = upper.CL,
+      colour = sex_plot
+    ),
+    width = 0.08,
+    linewidth = 1.1
+  ) +
+
+  # Estimated marginal means
+  geom_point(
+    data = emm_mass_sex_plot_df,
+    aes(
+      x = time,
+      y = emmean,
+      fill = sex_plot
+    ),
+    shape = 21,
+    size = 5,
+    stroke = 1.1,
+    colour = "black"
+  ) +
+
+  # Separate panel for each sex
+  facet_wrap(~ sex_plot) +
+
+  scale_colour_manual(values = dark_sex_cols) +
+  scale_fill_manual(values = pastel_sex_cols) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(6),
+    expand = expansion(mult = c(0.02, 0.06))
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Body mass (g)"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_mass_sex)
+
 ```
 

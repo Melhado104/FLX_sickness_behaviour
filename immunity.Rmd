@@ -22,6 +22,7 @@ data <- read.csv("dataset.csv")
 
 
 # Exploratory Data Analysis
+
 ```{r}
 #Data structure
 glimpse(data)
@@ -56,8 +57,11 @@ hist(data$velocity_cm.s)
 
 ```
 
-## Data Analysis: immune response
-#Total_wbc: the total count of white blood cells circulating in the bloo stream
+# Data Analysis: immune response
+
+## Immunity * sex interaction
+## Total_wbc: the total count of white blood cells circulating in the blood stream
+
 ```{r}
 # Prepare variables
 data$treatment <- factor(data$treatment,
@@ -67,448 +71,6 @@ data$sex <- factor(data$sex)
 data$tank_id <- factor(data$tank_id)
 data$body_mass_sc <- scale(data$body_mass)
 
-#Model
-m1_wbc <- glmmTMB(
-  total_wbc ~ treatment + sex + body_mass_sc + (1 | tank_id),
-  family = Gamma(link = "log"),
-  data = data
-)
-
-summary(m1_wbc)
-
-simulationOutput <- simulateResiduals(m1_wbc)
-plot(simulationOutput)
-testDispersion(simulationOutput)
-testOutliers(simulationOutput)
-
-Anova(m1_wbc, type = "II")
-emm_wbc <- emmeans(
-    m1_wbc,
-    ~ treatment,
-    type = "response"
-)
-
-emm_wbc
-
-pairs(emm_wbc, adjust = "tukey")
-
-```
-
-## Plotting
-#Immunity: total_wbc
-
-```{r}
-#---------------------------------------------------------
-# Prepare treatment labels for plotting
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(
-      treatment,
-      levels = c("control", "low", "high")
-    ),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    )
-  )
-
-#---------------------------------------------------------
-# Estimated marginal means (response scale)
-#---------------------------------------------------------
-
-emm_wbc_df <- as.data.frame(
-  emmeans(
-    m1_wbc,
-    ~ treatment,
-    type = "response"
-  )
-)
-
-print(emm_wbc_df)
-
-#---------------------------------------------------------
-# Standardise column names
-#---------------------------------------------------------
-
-cn <- names(emm_wbc_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_wbc_df <- emm_wbc_df %>%
-  mutate(
-    treatment = factor(
-      treatment,
-      levels = c("control", "low", "high")
-    ),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palette
-#---------------------------------------------------------
-
-pastel_cols <- c(
-  "Control" = "#A8D5BA",
-  "Low"     = "#F9E79F",
-  "High"    = "#F5B7B1"
-)
-
-dark_cols <- c(
-  "Control" = "#2E8B57",
-  "Low"     = "#C9A227",
-  "High"    = "#B22222"
-)
-
-#---------------------------------------------------------
-# Plot
-#---------------------------------------------------------
-
-p_wbc <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = total_wbc,
-      fill = treatment_plot
-    ),
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA
-  ) +
-
-  geom_jitter(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = total_wbc,
-      colour = treatment_plot
-    ),
-    width = 0.18,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_wbc_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = treatment_plot
-    ),
-    width = 0.25,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_wbc_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = treatment_plot
-    ),
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = dark_cols) +
-  scale_fill_manual(values = pastel_cols) +
-
-  scale_y_continuous(
-    limits = c(0, 80),
-    breaks = seq(0, 80, by = 10),
-    expand = expansion(mult = c(0, 0.02))
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Total white blood cells"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "none",
-    plot.title = element_blank(),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_wbc)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  here("figures", "total_wbc.pdf"),
-  p_wbc,
-  width = 6,
-  height = 5
-)
-
-ggsave(
-  here("figures", "total_wbc.jpg"),
-  p_wbc,
-  width = 6,
-  height = 5,
-  dpi = 600
-)
-```
-
-
-##N.L_ratio: neutrophil-to-lymphocye ratio. Two of the most abundant white blood cells.
-```{r}
-#---------------------------------------------------------
-# 1) Prepare variables
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(
-      treatment,
-      levels = c("control", "low", "high")
-    ),
-    sex = factor(sex),
-    tank_id = factor(tank_id),
-    body_mass_sc = as.numeric(scale(body_mass)),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    )
-  )
-
-#---------------------------------------------------------
-# 2) Model: Gamma GLMM
-#---------------------------------------------------------
-
-m1_nl <- glmmTMB(
-  n.l_ratio ~ treatment + sex + body_mass_sc + (1 | tank_id),
-  family = Gamma(link = "log"),
-  data = data
-)
-
-summary(m1_nl)
-
-#---------------------------------------------------------
-# 3) Diagnostics
-#---------------------------------------------------------
-
-res_nl <- simulateResiduals(m1_nl)
-plot(res_nl)
-testDispersion(res_nl)
-testOutliers(res_nl)
-
-#---------------------------------------------------------
-# 4) Type II ANOVA
-#---------------------------------------------------------
-
-Anova(m1_nl, type = "II")
-
-#---------------------------------------------------------
-# 5) Estimated marginal means
-#---------------------------------------------------------
-
-emm_nl <- emmeans(
-  m1_nl,
-  ~ treatment,
-  type = "response"
-)
-
-emm_nl
-
-pairs(emm_nl, adjust = "tukey")
-```
-
-#Plottiing
-#n.l_ratio
-
-```{r}
-#---------------------------------------------------------
-# Estimated marginal means dataframe
-#---------------------------------------------------------
-
-emm_nl_df <- as.data.frame(emm_nl)
-
-print(emm_nl_df)
-
-#---------------------------------------------------------
-# Standardise column names
-#---------------------------------------------------------
-
-cn <- names(emm_nl_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_nl_df <- emm_nl_df %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palette
-#---------------------------------------------------------
-
-pastel_cols <- c(
-  "Control" = "#A8D5BA",
-  "Low"     = "#F9E79F",
-  "High"    = "#F5B7B1"
-)
-
-dark_cols <- c(
-  "Control" = "#2E8B57",
-  "Low"     = "#C9A227",
-  "High"    = "#B22222"
-)
-
-#---------------------------------------------------------
-# Plot
-#---------------------------------------------------------
-
-p_nl <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = n.l_ratio,
-      fill = treatment_plot
-    ),
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA,
-    linewidth = 0
-  ) +
-
-  geom_jitter(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = n.l_ratio,
-      colour = treatment_plot
-    ),
-    width = 0.18,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_nl_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = treatment_plot
-    ),
-    width = 0.25,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_nl_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = treatment_plot
-    ),
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = dark_cols) +
-  scale_fill_manual(values = pastel_cols) +
-
-  scale_y_continuous(
-    breaks = scales::pretty_breaks(8),
-    expand = expansion(mult = c(0, 0.02))
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Neutrophil:lymphocyte ratio"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "none",
-    plot.title = element_blank(),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_nl)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  filename = here("figures", "nl_ratio.pdf"),
-  plot = p_nl,
-  width = 6,
-  height = 5
-)
-
-ggsave(
-  filename = here("figures", "nl_ratio.jpg"),
-  plot = p_nl,
-  width = 6,
-  height = 5,
-  dpi = 600
-)
-```
-
-## Immunity * sex interaction
-# WBC count
-
-```{r}
 # Total WBC interaction model
 m1_wbc_int <- glmmTMB(
   total_wbc ~ treatment * sex + body_mass_sc + (1 | tank_id),
@@ -539,6 +101,7 @@ emmeans(
   adjust = "tukey"
 )
 ```
+
 ## Plotting: WBC x sex
 
 ```{r}
@@ -568,14 +131,15 @@ data <- data %>%
 #---------------------------------------------------------
 
 sex_pastel_cols <- c(
-  "Female" = "#FDD0A2",
-  "Male"   = "#C6DBEF"
-) 
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
 
 sex_dark_cols <- c(
-  "Female" = "#E6550D",
-  "Male"   = "#2171B5"
-) 
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
 
 pd <- position_dodge(width = 0.75)
 
@@ -740,9 +304,212 @@ ggsave(
 )
 ```
 
+## Main effects model
+
+```{r}
+m1_wbc <- glmmTMB(
+  total_wbc ~ treatment + sex + body_mass_sc + (1 | tank_id),
+  family = Gamma(link = "log"),
+  data = data
+)
+
+summary(m1_wbc)
+
+simulationOutput <- simulateResiduals(m1_wbc)
+plot(simulationOutput)
+testDispersion(simulationOutput)
+testOutliers(simulationOutput)
+
+Anova(m1_wbc, type = "II")
+emm_wbc <- emmeans(
+    m1_wbc,
+    ~ treatment,
+    type = "response"
+)
+
+anova(m1_wbc, m1_wbc_int)
+
+emm_wbc
+
+pairs(emm_wbc, adjust = "tukey")
+
+```
+
+## Plotting
+## total_wbc
+
+```{r}
+# Prepare treatment labels for plotting
+data <- data %>%
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("control", "low", "high")
+    ),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    )
+  )
 
 
-#N.L_ratio v sex
+# Estimated marginal means (response scale)
+emm_wbc_df <- as.data.frame(
+  emmeans(
+    m1_wbc,
+    ~ treatment,
+    type = "response"
+  )
+)
+
+print(emm_wbc_df)
+
+
+# Standardise column names
+cn <- names(emm_wbc_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_wbc_df <- emm_wbc_df %>%
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("control", "low", "high")
+    ),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+
+# Colour palette
+pastel_cols <- c(
+  "Control" = "#A8D5BA",
+  "Low"     = "#F9E79F",
+  "High"    = "#F5B7B1"
+)
+
+dark_cols <- c(
+  "Control" = "#2E8B57",
+  "Low"     = "#C9A227",
+  "High"    = "#B22222"
+)
+
+
+# Plot
+p_wbc <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = total_wbc,
+      fill = treatment_plot
+    ),
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA
+  ) +
+
+  geom_jitter(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = total_wbc,
+      colour = treatment_plot
+    ),
+    width = 0.18,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_wbc_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = treatment_plot
+    ),
+    width = 0.25,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_wbc_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = treatment_plot
+    ),
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = dark_cols) +
+  scale_fill_manual(values = pastel_cols) +
+
+  scale_y_continuous(
+    limits = c(0, 80),
+    breaks = seq(0, 80, by = 10),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Total white blood cells"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.title = element_blank(),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_wbc)
+
+# Save
+ggsave(
+  here("figures", "total_wbc.pdf"),
+  p_wbc,
+  width = 6,
+  height = 5
+)
+
+ggsave(
+  here("figures", "total_wbc.jpg"),
+  p_wbc,
+  width = 6,
+  height = 5,
+  dpi = 600
+)
+```
+
+## Immunity * sex interaction
+## N.L_ratio: neutrophil-to-lymphocye ratio. Two of the most abundant white blood cells.
+
 ```{r}
 # N:L ratio interaction model
 m1_nl_int <- glmmTMB(
@@ -775,12 +542,10 @@ emmeans(
 )
 ```
 
-##Plotting N.L ratio x Sex
+## Plotting N.L ratio x Sex
 
 ```{r}
 # Estimated marginal means
-#---------------------------------------------------------
-
 emm_nl_int_df <- as.data.frame(
   emmeans(
     m1_nl_int,
@@ -822,10 +587,8 @@ emm_nl_int_df <- emm_nl_int_df %>%
     upper = !!upper_col
   )
 
-#---------------------------------------------------------
-# Plot N:L ratio
-#---------------------------------------------------------
 
+# Plot N:L ratio
 p_nl_sex <- ggplot() +
 
   geom_violin(
@@ -927,6 +690,213 @@ ggsave(
   height = 5,
   dpi = 600
 )
+
 ```
 
+
+## Main effects model
+
+```{r}
+# 1) Prepare variables
+data <- data %>%
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("control", "low", "high")
+    ),
+    sex = factor(sex),
+    tank_id = factor(tank_id),
+    body_mass_sc = as.numeric(scale(body_mass)),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    )
+  )
+
+
+# 2) Model: Gamma GLMM
+
+m1_nl <- glmmTMB(
+  n.l_ratio ~ treatment + sex + body_mass_sc + (1 | tank_id),
+  family = Gamma(link = "log"),
+  data = data
+)
+
+summary(m1_nl)
+
+
+# 3) Diagnostics
+
+res_nl <- simulateResiduals(m1_nl)
+plot(res_nl)
+testDispersion(res_nl)
+testOutliers(res_nl)
+
+# 4) Type II ANOVA
+Anova(m1_nl, type = "II")
+
+anova(m1_nl, m1_nl_int)
+
+
+# 5) Estimated marginal means
+emm_nl <- emmeans(
+  m1_nl,
+  ~ treatment,
+  type = "response"
+)
+
+emm_nl
+
+pairs(emm_nl, adjust = "tukey")
+```
+
+## Plottiing: n.l_ratio
+
+```{r}
+# Estimated marginal means dataframe
+
+emm_nl_df <- as.data.frame(emm_nl)
+
+print(emm_nl_df)
+
+# Standardise column names
+cn <- names(emm_nl_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_nl_df <- emm_nl_df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+# Colour palette
+
+pastel_cols <- c(
+  "Control" = "#A8D5BA",
+  "Low"     = "#F9E79F",
+  "High"    = "#F5B7B1"
+)
+
+dark_cols <- c(
+  "Control" = "#2E8B57",
+  "Low"     = "#C9A227",
+  "High"    = "#B22222"
+)
+
+# Plot
+
+
+p_nl <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = n.l_ratio,
+      fill = treatment_plot
+    ),
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA,
+    linewidth = 0
+  ) +
+
+  geom_jitter(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = n.l_ratio,
+      colour = treatment_plot
+    ),
+    width = 0.18,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_nl_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = treatment_plot
+    ),
+    width = 0.25,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_nl_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = treatment_plot
+    ),
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = dark_cols) +
+  scale_fill_manual(values = pastel_cols) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(8),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Neutrophil:lymphocyte ratio"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.title = element_blank(),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_nl)
+
+
+# Save
+ggsave(
+  filename = here("figures", "nl_ratio.pdf"),
+  plot = p_nl,
+  width = 6,
+  height = 5
+)
+
+ggsave(
+  filename = here("figures", "nl_ratio.jpg"),
+  plot = p_nl,
+  width = 6,
+  height = 5,
+  dpi = 600
+)
+```
 

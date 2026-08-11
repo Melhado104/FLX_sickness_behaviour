@@ -20,7 +20,8 @@ data <- read.csv("dataset.csv")
 ```
 
 
-# Exploratory Data Analysis
+## Exploratory Data Analysis
+
 ```{r}
 #Data structure
 glimpse(data)
@@ -82,8 +83,13 @@ data %>%
 
 ```
 
-## Data Analysis - Behaviours
-# Distance_moved: the total distance (in cm) that fish swim during the behavioural trial. Tank_ID was firstly included in the analysis as a random factor, but the data indicated that, for all behavioural responses, tanks do not explain any addtional variation beyond the residual error.
+# Data Analysis - Behaviours
+
+## Interaction Behaviours x Sex: A treatment × sex interaction was included to test whether the behavioural response to fluoxetine differed between males and females. This is biologically relevant because sex-specific differences in immune activation and sickness behaviour have been reported in vertebrates and may influence responses to environmental contaminants.
+
+## Behaviour: Distance_moved x Sex
+## The total distance (in cm) that fish swim during the behavioural trial. Tank_ID was firstly included in the analysis as a random factor, but the data indicated that, for all behavioural responses, tanks do not explain any addtional variation beyond the residual error. When the model was not singular, tank_ID was removed.
+
 
 ```{r}
 # Prepare variables
@@ -94,6 +100,226 @@ data$sex <- factor(data$sex)
 data$tank_id <- factor(data$tank_id)
 data$body_mass_sc <- scale(data$body_mass)
 
+
+# Interaction (full) model
+m_distance_int <- lm(
+  distance_cm ~ treatment * sex + body_mass_sc,
+  data = data
+)
+
+summary(m_distance_int)
+
+# Diagnosis
+res_m1_distance_moved_int <- simulateResiduals(m_distance_int)
+plot(res_m1_distance_moved_int)
+
+testDispersion(res_m1_distance_moved_int)
+testZeroInflation(res_m1_distance_moved_int)
+testOutliers(res_m1_distance_moved_int)
+
+#Anova of the model
+Anova(m_distance_int, type = "III")
+
+emmeans(m_distance_int, pairwise ~ treatment | sex, adjust = "tukey")
+
+emmeans(m_distance_int, pairwise ~ sex | treatment, adjust = "tukey")
+
+
+
+```
+
+# Plotting Distance_moved x Sex
+
+```{r}
+# Prepare labels
+data <- data %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+# Estimated marginal means for treatment × sex interaction
+emm_distance_int_df <- as.data.frame(
+  emmeans(
+    m_distance_int,
+    ~ sex | treatment
+  )
+)
+
+cn <- names(emm_distance_int_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_distance_int_df <- emm_distance_int_df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+# Colour palettes for sex
+
+sex_pastel_cols <- c(
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
+sex_dark_cols <- c(
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
+
+
+# Plot: sex side by side within treatment
+pd <- position_dodge(width = 0.75)
+
+pj <- position_jitterdodge(
+  jitter.width = 0.12,
+  dodge.width = 0.75
+)
+
+p_distance_int_side <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = distance_cm,
+      fill = sex_plot,
+      group = interaction(treatment_plot, sex_plot)
+    ),
+    position = pd,
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA,
+    linewidth = 0
+  ) +
+
+  geom_point(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = distance_cm,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pj,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_distance_int_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    width = 0.18,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_distance_int_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = sex_dark_cols) +
+  scale_fill_manual(values = sex_pastel_cols) +
+
+  scale_y_continuous(
+    limits = c(0, 4000),
+    breaks = seq(0, 4000, by = 500),
+    labels = scales::comma
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Distance moved (cm)",
+    fill = "Sex",
+    colour = "Sex"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_distance_int_side)
+
+
+# Save
+ggsave(
+  filename = here("figures", "distance_moved_treatment_sex_side_by_side.pdf"),
+  plot = p_distance_int_side,
+  width = 7,
+  height = 5
+)
+
+ggsave(
+  filename = here("figures", "distance_moved_treatment_sex_side_by_side.jpg"),
+  plot = p_distance_int_side,
+  width = 7,
+  height = 5,
+  dpi = 600
+)
+```
+
+## Distance_moved
+## Main effects model
+
+```{r}
 # Linear model
 m_distance <- lm(
   distance_cm ~ treatment + sex + body_mass_sc,
@@ -115,9 +341,12 @@ Anova(m_distance, type = "II")
 
 emmeans(m_distance, pairwise ~ treatment, adjust = "tukey")
 
+anova(m_distance, m_distance_int)
+
 ```
+
 ## Plotting
-# Behaviour: Distance_moved
+## Behaviour: Distance_moved
 
 ```{r}
 #---------------------------------------------------------
@@ -298,12 +527,243 @@ print(p_distance)
 # 7) Save
 #---------------------------------------------------------
 
-# ggsave(here("figures", "distance_moved.pdf"), p_distance, width = 6, height = 5)
+ggsave(here("figures", "distance_moved.pdf"), p_distance, width = 6, height = 5)
 
-# ggsave(here("figures", "distance_moved.jpg"), p_distance, width = 6, height = 5, dpi = 600)
+ggsave(here("figures", "distance_moved.jpg"), p_distance, width = 6, height = 5, dpi = 600)
 ```
 
-# Time_freezing: time (in s) that fish was in open arena but not moving during the trials.
+## Time-freezing x sex:
+## Time (in s) that fish was in open arena but not moving during the trials.
+
+```{r}
+# Interaction (full) model
+
+m_freezing_int <- lm(
+  freezing_s ~ treatment * sex + body_mass_sc,
+  data = data
+)
+
+summary(m_freezing_int)
+
+#Diagnosis
+res_m1_freezing_int <- simulateResiduals(m_freezing_int)
+plot(res_m1_freezing_int)
+
+testDispersion(res_m1_freezing_int)
+testZeroInflation(res_m1_freezing_int)
+testOutliers(res_m1_freezing_int)
+
+
+#Anova
+Anova(m_freezing_int, type = "III")
+emmeans(m_freezing_int, pairwise ~ treatment | sex, adjust = "tukey")
+emmeans(m_freezing_int, pairwise ~ sex | treatment, adjust = "tukey")
+
+```
+
+#Plottin time_freezing x sex
+
+```{r}
+#---------------------------------------------------------
+# Prepare labels
+#---------------------------------------------------------
+
+data <- data %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+#---------------------------------------------------------
+# Estimated marginal means for treatment × sex interaction
+#---------------------------------------------------------
+
+emm_freezing_int_df <- as.data.frame(
+  emmeans(
+    m_freezing_int,
+    ~ sex | treatment
+  )
+)
+
+cn <- names(emm_freezing_int_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_freezing_int_df <- emm_freezing_int_df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+#---------------------------------------------------------
+# Colour palettes for sex
+#---------------------------------------------------------
+
+sex_pastel_cols <- c(
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
+sex_dark_cols <- c(
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
+
+#---------------------------------------------------------
+# Plot: sex side by side within treatment
+#---------------------------------------------------------
+
+pd <- position_dodge(width = 0.75)
+pj <- position_jitterdodge(
+  jitter.width = 0.12,
+  dodge.width = 0.75
+)
+
+p_freezing_int_side <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = freezing_s,
+      fill = sex_plot,
+      group = interaction(treatment_plot, sex_plot)
+    ),
+    position = pd,
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA,
+    linewidth = 0
+  ) +
+
+  geom_point(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = freezing_s,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pj,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_freezing_int_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    width = 0.18,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_freezing_int_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = sex_dark_cols) +
+  scale_fill_manual(values = sex_pastel_cols) +
+
+  scale_y_continuous(
+    limits = c(0, 1200),
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Freezing duration (s)",
+    fill = "Sex",
+    colour = "Sex"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_freezing_int_side)
+
+#---------------------------------------------------------
+# Save
+#---------------------------------------------------------
+
+ggsave(
+  filename = here("figures", "freezing_treatment_sex_side_by_side.pdf"),
+  plot = p_freezing_int_side,
+  width = 7,
+  height = 5
+)
+
+ggsave(
+  filename = here("figures", "freezing_treatment_sex_side_by_side.jpg"),
+  plot = p_freezing_int_side,
+  width = 7,
+  height = 5,
+  dpi = 600
+)
+
+```
+
+
+## Time_freezing:
+## main effects model
 
 ```{r}
 # Linear model
@@ -331,7 +791,7 @@ emmeans(m_freezing, pairwise ~ treatment, adjust = "tukey")
 ```
 
 ## Plotting
-# Behaviour: Time_freezing
+## Behaviour: Time_freezing
 
 ```{r}
 #---------------------------------------------------------
@@ -484,20 +944,267 @@ print(p_freezing)
 # Save
 #---------------------------------------------------------
 
-# ggsave( filename = here("figures", "freezing_duration.pdf"), plot = p_freezing, width = 6, height = 5)
+ggsave( filename = here("figures", "freezing_duration.pdf"), plot = p_freezing, width = 6, height = 5)
 
-# ggsave(filename = here("figures", "freezing_duration.jpg"), plot = p_freezing, width = 6, height = 5, dpi = 600)
+ggsave(filename = here("figures", "freezing_duration.jpg"), plot = p_freezing, width = 6, height = 5, dpi = 600)
 
 ```
 
-# Refuge_duration: time that fish spend under the shelter during the trials.
+## Refuge duration x sex
+## Refuge_duration: time that fish spend under the shelter during the trials.Refuge duration exhibited a zero-inflated continuous distribution, with approximately 13% of fish never entering the refuge (0 s). To appropriately model this response, a Tweedie GLM was fitted because the Tweedie distribution accommodates continuous positive values while allowing an exact mass at zero, making it well suited for ecological time-to-event and duration data with excess zeros. 
 
-# Refuge duration exhibited a zero-inflated continuous distribution, with approximately 13% of fish never entering the refuge (0 s). To appropriately model this response, a Tweedie GLM was fitted because the Tweedie distribution accommodates continuous positive values while allowing an exact mass at zero, making it well suited for ecological time-to-event and duration data with excess zeros. 
+
+```{r}
+# Model: family Tweedie
+m_refuge_int <- glmmTMB(
+  refuge_duration_s ~ treatment * sex + body_mass_sc +
+    (1 | tank_id),
+  family = tweedie(link = "log"),
+  data = data
+)
+
+summary(m_refuge_int)
+
+# Diagnosis
+
+simulationOutput <- simulateResiduals(m_refuge_int)
+plot(simulationOutput)
+testDispersion(simulationOutput)
+testZeroInflation(simulationOutput)
+testOutliers(simulationOutput)
+
+#Anova of the model
+Anova(m_refuge_int, type = "III")
+
+emm_refuge_int <- emmeans(
+    m_refuge_int,
+    ~ treatment | sex,
+    type = "response"
+)
+
+pairs(
+    emm_refuge_int,
+    adjust = "tukey"
+)
+
+emmeans(
+    m_refuge_int,
+    pairwise ~ sex | treatment,
+    type = "response",
+    adjust = "tukey"
+)
+
+```
+
+#Plotting refuge_duration * sex
+
+```{r}
+#---------------------------------------------------------
+# Prepare labels
+#---------------------------------------------------------
+
+data <- data %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+#---------------------------------------------------------
+# Estimated marginal means for treatment × sex interaction
+# response scale because model uses Tweedie with log link
+#---------------------------------------------------------
+
+emm_refuge_int_df <- as.data.frame(
+  emmeans(
+    m_refuge_int,
+    ~ sex | treatment,
+    type = "response"
+  )
+)
+
+cn <- names(emm_refuge_int_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_refuge_int_df <- emm_refuge_int_df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+#---------------------------------------------------------
+# Colour palettes for sex
+#---------------------------------------------------------
+
+sex_pastel_cols <- c(
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
+sex_dark_cols <- c(
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
+
+#---------------------------------------------------------
+# Plot: sex side by side within treatment
+#---------------------------------------------------------
+
+pd <- position_dodge(width = 0.75)
+
+pj <- position_jitterdodge(
+  jitter.width = 0.12,
+  dodge.width = 0.75
+)
+
+p_refuge_int_side <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = refuge_duration_s,
+      fill = sex_plot,
+      group = interaction(treatment_plot, sex_plot)
+    ),
+    position = pd,
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA,
+    linewidth = 0
+  ) +
+
+  geom_point(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = refuge_duration_s,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pj,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_refuge_int_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    width = 0.18,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_refuge_int_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = sex_dark_cols) +
+  scale_fill_manual(values = sex_pastel_cols) +
+
+  scale_y_continuous(
+    limits = c(0, 1200),
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Refuge use duration (s)",
+    fill = "Sex",
+    colour = "Sex"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_refuge_int_side)
+
+#---------------------------------------------------------
+# Save
+#---------------------------------------------------------
+
+ggsave(
+  filename = here("figures", "refuge_treatment_sex_side_by_side.pdf"),
+  plot = p_refuge_int_side,
+  width = 7,
+  height = 5
+)
+
+ggsave(
+  filename = here("figures", "refuge_treatment_sex_side_by_side.jpg"),
+  plot = p_refuge_int_side,
+  width = 7,
+  height = 5,
+  dpi = 600
+)
+```
+
+# Refuge_duration: main effects model
 
 ```{r}
 #Model: family Tweedie
 m_refuge <- glmmTMB(
-    refuge_duration_s ~ treatment + sex + body_mass_sc,
+    refuge_duration_s ~ treatment + sex + body_mass_sc +
+    (1 | tank_id),
     family = tweedie(link = "log"),
     data = data
 )
@@ -526,7 +1233,7 @@ pairs(emm_refuge, adjust = "tukey")
 ```
 
 ## Plotting
-#Behaviour: Shelter use
+## Behaviour: refuge_duration
 
 ```{r}
 #---------------------------------------------------------
@@ -675,16 +1382,241 @@ p_refuge <- ggplot() +
 
 print(p_refuge)
 
+# Save
+
+ggsave(filename = here("figures", "refuge_duration.pdf"), plot = p_refuge, width = 6, height = 5)
+
+ggsave(filename = here("figures", "refuge_duration.jpg"), plot = p_refuge, width = 6, height = 5, dpi = 600)
+
+```
+
+## Velocity * sex
+## Average swimming speed of each fish during the behavioural trial, calculated from the distance travelled over time and expressed in centimetres per second (cm/s)
+
+```{r}
+# Linear model
+m_velo_int <- lm(
+  velocity_cm.s ~ treatment * sex + body_mass_sc,
+  data = data
+)
+
+summary(m_velo_int)
+
+# Diagnosis
+res_m1_velo_int <- simulateResiduals(m_velo_int)
+plot(res_m1_velo_int)
+
+testDispersion(res_m1_velo_int)
+testZeroInflation(res_m1_velo_int)
+testOutliers(res_m1_velo_int)
+
+#Anova of the model
+Anova(m_velo_int, type = "III")
+emmeans(m_velo_int, pairwise ~ treatment | sex, adjust = "tukey")
+emmeans(m_velo_int, pairwise ~ sex | treatment, adjust = "tukey")
+
+```
+
+#Plotting velocity * sex
+```{r}
+#---------------------------------------------------------
+# Prepare labels
+#---------------------------------------------------------
+
+data <- data %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  )
+
+#---------------------------------------------------------
+# Estimated marginal means for treatment × sex interaction
+#---------------------------------------------------------
+
+emm_velo_int_df <- as.data.frame(
+  emmeans(
+    m_velo_int,
+    ~ sex | treatment
+  )
+)
+
+cn <- names(emm_velo_int_df)
+
+mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
+
+lower_col <- dplyr::first(
+  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
+)
+
+upper_col <- dplyr::first(
+  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
+)
+
+emm_velo_int_df <- emm_velo_int_df %>%
+  mutate(
+    treatment = factor(treatment, levels = c("control", "low", "high")),
+    sex = factor(sex, levels = c("female", "male")),
+    treatment_plot = factor(
+      treatment,
+      levels = c("control", "low", "high"),
+      labels = c("Control", "Low", "High")
+    ),
+    sex_plot = factor(
+      sex,
+      levels = c("female", "male"),
+      labels = c("Female", "Male")
+    )
+  ) %>%
+  rename(
+    mean  = !!mean_col,
+    lower = !!lower_col,
+    upper = !!upper_col
+  )
+
+#---------------------------------------------------------
+# Colour palettes for sex
+#---------------------------------------------------------
+
+sex_pastel_cols <- c(
+  "Female" = "#D8B4E2",
+  "Male"   = "#A9CCE3"
+)
+
+sex_dark_cols <- c(
+  "Female" = "#8E44AD",
+  "Male"   = "#2874A6"
+)
+
+#---------------------------------------------------------
+# Plot
+#---------------------------------------------------------
+
+pd <- position_dodge(width = 0.75)
+
+pj <- position_jitterdodge(
+  jitter.width = 0.12,
+  dodge.width = 0.75
+)
+
+p_velocity_int_side <- ggplot() +
+
+  geom_violin(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = velocity_cm.s,
+      fill = sex_plot,
+      group = interaction(treatment_plot, sex_plot)
+    ),
+    position = pd,
+    trim = FALSE,
+    alpha = 0.25,
+    colour = NA,
+    linewidth = 0
+  ) +
+
+  geom_point(
+    data = data,
+    aes(
+      x = treatment_plot,
+      y = velocity_cm.s,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pj,
+    alpha = 0.55,
+    size = 2
+  ) +
+
+  geom_errorbar(
+    data = emm_velo_int_df,
+    aes(
+      x = treatment_plot,
+      ymin = lower,
+      ymax = upper,
+      colour = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    width = 0.18,
+    linewidth = 1.3
+  ) +
+
+  geom_point(
+    data = emm_velo_int_df,
+    aes(
+      x = treatment_plot,
+      y = mean,
+      fill = sex_plot,
+      group = sex_plot
+    ),
+    position = pd,
+    shape = 21,
+    size = 5,
+    stroke = 1.2,
+    colour = "black"
+  ) +
+
+  scale_colour_manual(values = sex_dark_cols) +
+  scale_fill_manual(values = sex_pastel_cols) +
+
+  scale_y_continuous(
+    limits = c(0, 4),
+    breaks = seq(0, 4, by = 0.5)
+  ) +
+
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Velocity (cm/s)",
+    fill = "Sex",
+    colour = "Sex"
+  ) +
+
+  theme_bw(base_size = 14) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "top",
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_velocity_int_side)
+
 #---------------------------------------------------------
 # Save
 #---------------------------------------------------------
 
-# ggsave(filename = here("figures", "refuge_duration.pdf"), plot = p_refuge, width = 6, height = 5)
+ggsave(
+  filename = here("figures", "velocity_treatment_sex_side_by_side.pdf"),
+  plot = p_velocity_int_side,
+  width = 7,
+  height = 5
+)
 
-# ggsave(filename = here("figures", "refuge_duration.jpg"), plot = p_refuge, width = 6, height = 5, dpi = 600)
+ggsave(
+  filename = here("figures", "velocity_treatment_sex_side_by_side.jpg"),
+  plot = p_velocity_int_side,
+  width = 7,
+  height = 5,
+  dpi = 600
+)
 ```
 
-# Velocity
+
+## Velocity
 
 ```{r}
 # Linear model
@@ -708,7 +1640,9 @@ Anova(m_velo, type = "II")
 
 emmeans(m_velo, pairwise ~ treatment, adjust = "tukey")
 ```
-# Plotting velocity
+
+## Plotting velocity
+
 ```{r}
 #---------------------------------------------------------
 # Estimated marginal means from the main model
@@ -830,934 +1764,6 @@ ggsave(
 
 
 
-## Interaction Behaviours x Sex: A treatment × sex interaction was included to test whether the behavioural response to fluoxetine differed between males and females. This is biologically relevant because sex-specific differences in immune activation and sickness behaviour have been reported in vertebrates and may influence responses to environmental contaminants.
 
-# Behaviour: Distance_moved
-
-```{r}
-# Linear model
-m_distance_int <- lm(
-  distance_cm ~ treatment * sex + body_mass_sc,
-  data = data
-)
-
-summary(m_distance_int)
-
-# Diagnosis
-res_m1_distance_moved_int <- simulateResiduals(m_distance_int)
-plot(res_m1_distance_moved_int)
-
-testDispersion(res_m1_distance_moved_int)
-testZeroInflation(res_m1_distance_moved_int)
-testOutliers(res_m1_distance_moved_int)
-
-#Anova of the model
-Anova(m_distance_int, type = "III")
-
-emmeans(m_distance_int, pairwise ~ treatment | sex, adjust = "tukey")
-
-emmeans(m_distance_int, pairwise ~ sex | treatment, adjust = "tukey")
-
-
-
-```
-
-# Plotting Distance_moved x Sex
-
-```{r}
-#---------------------------------------------------------
-# Prepare labels
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  )
-
-#---------------------------------------------------------
-# Estimated marginal means for treatment × sex interaction
-#---------------------------------------------------------
-
-emm_distance_int_df <- as.data.frame(
-  emmeans(
-    m_distance_int,
-    ~ sex | treatment
-  )
-)
-
-cn <- names(emm_distance_int_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_distance_int_df <- emm_distance_int_df %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palettes for sex
-#---------------------------------------------------------
-
-sex_pastel_cols <- c(
-  "Female" = "#FDD0A2",
-  "Male"   = "#C6DBEF"
-) 
-
-sex_dark_cols <- c(
-  "Female" = "#E6550D",
-  "Male"   = "#2171B5"
-) 
-
-#---------------------------------------------------------
-# Plot: sex side by side within treatment
-#---------------------------------------------------------
-
-pd <- position_dodge(width = 0.75)
-
-pj <- position_jitterdodge(
-  jitter.width = 0.12,
-  dodge.width = 0.75
-)
-
-p_distance_int_side <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = distance_cm,
-      fill = sex_plot,
-      group = interaction(treatment_plot, sex_plot)
-    ),
-    position = pd,
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA,
-    linewidth = 0
-  ) +
-
-  geom_point(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = distance_cm,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pj,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_distance_int_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    width = 0.18,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_distance_int_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = sex_dark_cols) +
-  scale_fill_manual(values = sex_pastel_cols) +
-
-  scale_y_continuous(
-    limits = c(0, 4000),
-    breaks = seq(0, 4000, by = 500),
-    labels = scales::comma
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Distance moved (cm)",
-    fill = "Sex",
-    colour = "Sex"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "top",
-    legend.title = element_text(size = 13),
-    legend.text = element_text(size = 12),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_distance_int_side)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  filename = here("figures", "distance_moved_treatment_sex_side_by_side.pdf"),
-  plot = p_distance_int_side,
-  width = 7,
-  height = 5
-)
-
-ggsave(
-  filename = here("figures", "distance_moved_treatment_sex_side_by_side.jpg"),
-  plot = p_distance_int_side,
-  width = 7,
-  height = 5,
-  dpi = 600
-)
-```
-
-# Time-freezing x sex:
-
-```{r}
-# Linear model
-
-m_freezing_int <- lm(
-  freezing_s ~ treatment * sex + body_mass_sc,
-  data = data
-)
-
-summary(m_freezing_int)
-
-#Diagnosis
-res_m1_freezing_int <- simulateResiduals(m_freezing_int)
-plot(res_m1_freezing_int)
-
-testDispersion(res_m1_freezing_int)
-testZeroInflation(res_m1_freezing_int)
-testOutliers(res_m1_freezing_int)
-
-
-#Anova
-Anova(m_freezing_int, type = "III")
-emmeans(m_freezing_int, pairwise ~ treatment | sex, adjust = "tukey")
-emmeans(m_freezing_int, pairwise ~ sex | treatment, adjust = "tukey")
-
-```
-
-#Plottin time_freezing x sex
-
-```{r}
-#---------------------------------------------------------
-# Prepare labels
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  )
-
-#---------------------------------------------------------
-# Estimated marginal means for treatment × sex interaction
-#---------------------------------------------------------
-
-emm_freezing_int_df <- as.data.frame(
-  emmeans(
-    m_freezing_int,
-    ~ sex | treatment
-  )
-)
-
-cn <- names(emm_freezing_int_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_freezing_int_df <- emm_freezing_int_df %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palettes for sex
-#---------------------------------------------------------
-
-sex_pastel_cols <- c(
-  "Female" = "#FDD0A2",
-  "Male"   = "#C6DBEF"
-) 
-
-sex_dark_cols <- c(
-  "Female" = "#E6550D",
-  "Male"   = "#2171B5"
-) 
-
-#---------------------------------------------------------
-# Plot: sex side by side within treatment
-#---------------------------------------------------------
-
-pd <- position_dodge(width = 0.75)
-pj <- position_jitterdodge(
-  jitter.width = 0.12,
-  dodge.width = 0.75
-)
-
-p_freezing_int_side <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = freezing_s,
-      fill = sex_plot,
-      group = interaction(treatment_plot, sex_plot)
-    ),
-    position = pd,
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA,
-    linewidth = 0
-  ) +
-
-  geom_point(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = freezing_s,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pj,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_freezing_int_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    width = 0.18,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_freezing_int_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = sex_dark_cols) +
-  scale_fill_manual(values = sex_pastel_cols) +
-
-  scale_y_continuous(
-    limits = c(0, 1200),
-    breaks = seq(0, 1200, by = 200),
-    labels = scales::comma
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Freezing duration (s)",
-    fill = "Sex",
-    colour = "Sex"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "top",
-    legend.title = element_text(size = 13),
-    legend.text = element_text(size = 12),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_freezing_int_side)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  filename = here("figures", "freezing_treatment_sex_side_by_side.pdf"),
-  plot = p_freezing_int_side,
-  width = 7,
-  height = 5
-)
-
-ggsave(
-  filename = here("figures", "freezing_treatment_sex_side_by_side.jpg"),
-  plot = p_freezing_int_side,
-  width = 7,
-  height = 5,
-  dpi = 600
-)
-
-```
-
-
-#Shelter_use * Sex
-
-```{r}
-#Model: family Tweedie
-m_refuge_int <- glmmTMB(
-    refuge_duration_s ~ treatment * sex + body_mass_sc,
-    family = tweedie(link = "log"),
-    data = data
-)
-
-summary(m_refuge_int)
-
-# Diagnosis
-
-simulationOutput <- simulateResiduals(m_refuge_int)
-plot(simulationOutput)
-testDispersion(simulationOutput)
-testZeroInflation(simulationOutput)
-testOutliers(simulationOutput)
-
-#Anova of the model
-Anova(m_refuge_int, type = "III")
-
-emm_refuge_int <- emmeans(
-    m_refuge_int,
-    ~ treatment | sex,
-    type = "response"
-)
-
-pairs(
-    emm_refuge_int,
-    adjust = "tukey"
-)
-
-emmeans(
-    m_refuge_int,
-    pairwise ~ sex | treatment,
-    type = "response",
-    adjust = "tukey"
-)
-
-```
-
-#Plotting shleter_use * sex
-
-```{r}
-#---------------------------------------------------------
-# Prepare labels
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  )
-
-#---------------------------------------------------------
-# Estimated marginal means for treatment × sex interaction
-# response scale because model uses Tweedie with log link
-#---------------------------------------------------------
-
-emm_refuge_int_df <- as.data.frame(
-  emmeans(
-    m_refuge_int,
-    ~ sex | treatment,
-    type = "response"
-  )
-)
-
-cn <- names(emm_refuge_int_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_refuge_int_df <- emm_refuge_int_df %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palettes for sex
-#---------------------------------------------------------
-
-sex_pastel_cols <- c(
-  "Female" = "#FDD0A2",
-  "Male"   = "#C6DBEF"
-) 
-
-sex_dark_cols <- c(
-  "Female" = "#E6550D",
-  "Male"   = "#2171B5"
-) 
-
-#---------------------------------------------------------
-# Plot: sex side by side within treatment
-#---------------------------------------------------------
-
-pd <- position_dodge(width = 0.75)
-
-pj <- position_jitterdodge(
-  jitter.width = 0.12,
-  dodge.width = 0.75
-)
-
-p_refuge_int_side <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = refuge_duration_s,
-      fill = sex_plot,
-      group = interaction(treatment_plot, sex_plot)
-    ),
-    position = pd,
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA,
-    linewidth = 0
-  ) +
-
-  geom_point(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = refuge_duration_s,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pj,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_refuge_int_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    width = 0.18,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_refuge_int_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = sex_dark_cols) +
-  scale_fill_manual(values = sex_pastel_cols) +
-
-  scale_y_continuous(
-    limits = c(0, 1200),
-    breaks = seq(0, 1200, by = 200),
-    labels = scales::comma
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Refuge use duration (s)",
-    fill = "Sex",
-    colour = "Sex"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "top",
-    legend.title = element_text(size = 13),
-    legend.text = element_text(size = 12),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_refuge_int_side)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  filename = here("figures", "refuge_treatment_sex_side_by_side.pdf"),
-  plot = p_refuge_int_side,
-  width = 7,
-  height = 5
-)
-
-ggsave(
-  filename = here("figures", "refuge_treatment_sex_side_by_side.jpg"),
-  plot = p_refuge_int_side,
-  width = 7,
-  height = 5,
-  dpi = 600
-)
-```
-
-
-#Velocity * sex
-```{r}
-# Linear model
-m_velo_int <- lm(
-  velocity_cm.s ~ treatment * sex + body_mass_sc,
-  data = data
-)
-
-summary(m_velo_int)
-
-# Diagnosis
-res_m1_velo_int <- simulateResiduals(m_velo_int)
-plot(res_m1_velo_int)
-
-testDispersion(res_m1_velo_int)
-testZeroInflation(res_m1_velo_int)
-testOutliers(res_m1_velo_int)
-
-#Anova of the model
-Anova(m_velo_int, type = "III")
-emmeans(m_velo_int, pairwise ~ treatment | sex, adjust = "tukey")
-emmeans(m_velo_int, pairwise ~ sex | treatment, adjust = "tukey")
-
-```
-
-#Plotting velocity * sex
-```{r}
-#---------------------------------------------------------
-# Prepare labels
-#---------------------------------------------------------
-
-data <- data %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  )
-
-#---------------------------------------------------------
-# Estimated marginal means for treatment × sex interaction
-#---------------------------------------------------------
-
-emm_velo_int_df <- as.data.frame(
-  emmeans(
-    m_velo_int,
-    ~ sex | treatment
-  )
-)
-
-cn <- names(emm_velo_int_df)
-
-mean_col  <- dplyr::first(cn[cn %in% c("response", "rate", "emmean")])
-
-lower_col <- dplyr::first(
-  cn[grepl("^lower\\.CL$|^asymp\\.LCL$|^LCL$|^lower$", cn)]
-)
-
-upper_col <- dplyr::first(
-  cn[grepl("^upper\\.CL$|^asymp\\.UCL$|^UCL$|^upper$", cn)]
-)
-
-emm_velo_int_df <- emm_velo_int_df %>%
-  mutate(
-    treatment = factor(treatment, levels = c("control", "low", "high")),
-    sex = factor(sex, levels = c("female", "male")),
-    treatment_plot = factor(
-      treatment,
-      levels = c("control", "low", "high"),
-      labels = c("Control", "Low", "High")
-    ),
-    sex_plot = factor(
-      sex,
-      levels = c("female", "male"),
-      labels = c("Female", "Male")
-    )
-  ) %>%
-  rename(
-    mean  = !!mean_col,
-    lower = !!lower_col,
-    upper = !!upper_col
-  )
-
-#---------------------------------------------------------
-# Colour palettes for sex
-#---------------------------------------------------------
-
-sex_pastel_cols <- c(
-  "Female" = "#FDD0A2",
-  "Male"   = "#C6DBEF"
-) 
-
-sex_dark_cols <- c(
-  "Female" = "#E6550D",
-  "Male"   = "#2171B5"
-) 
-
-#---------------------------------------------------------
-# Plot
-#---------------------------------------------------------
-
-pd <- position_dodge(width = 0.75)
-
-pj <- position_jitterdodge(
-  jitter.width = 0.12,
-  dodge.width = 0.75
-)
-
-p_velocity_int_side <- ggplot() +
-
-  geom_violin(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = velocity_cm.s,
-      fill = sex_plot,
-      group = interaction(treatment_plot, sex_plot)
-    ),
-    position = pd,
-    trim = FALSE,
-    alpha = 0.25,
-    colour = NA,
-    linewidth = 0
-  ) +
-
-  geom_point(
-    data = data,
-    aes(
-      x = treatment_plot,
-      y = velocity_cm.s,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pj,
-    alpha = 0.55,
-    size = 2
-  ) +
-
-  geom_errorbar(
-    data = emm_velo_int_df,
-    aes(
-      x = treatment_plot,
-      ymin = lower,
-      ymax = upper,
-      colour = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    width = 0.18,
-    linewidth = 1.3
-  ) +
-
-  geom_point(
-    data = emm_velo_int_df,
-    aes(
-      x = treatment_plot,
-      y = mean,
-      fill = sex_plot,
-      group = sex_plot
-    ),
-    position = pd,
-    shape = 21,
-    size = 5,
-    stroke = 1.2,
-    colour = "black"
-  ) +
-
-  scale_colour_manual(values = sex_dark_cols) +
-  scale_fill_manual(values = sex_pastel_cols) +
-
-  scale_y_continuous(
-    limits = c(0, 4),
-    breaks = seq(0, 4, by = 0.5)
-  ) +
-
-  labs(
-    x = "Fluoxetine treatment",
-    y = "Velocity (cm/s)",
-    fill = "Sex",
-    colour = "Sex"
-  ) +
-
-  theme_bw(base_size = 14) +
-
-  theme(
-    panel.grid = element_blank(),
-    legend.position = "top",
-    legend.title = element_text(size = 13),
-    legend.text = element_text(size = 12),
-    axis.title = element_text(size = 15),
-    axis.text = element_text(size = 13)
-  )
-
-print(p_velocity_int_side)
-
-#---------------------------------------------------------
-# Save
-#---------------------------------------------------------
-
-ggsave(
-  filename = here("figures", "velocity_treatment_sex_side_by_side.pdf"),
-  plot = p_velocity_int_side,
-  width = 7,
-  height = 5
-)
-
-ggsave(
-  filename = here("figures", "velocity_treatment_sex_side_by_side.jpg"),
-  plot = p_velocity_int_side,
-  width = 7,
-  height = 5,
-  dpi = 600
-)
-```
 
 
