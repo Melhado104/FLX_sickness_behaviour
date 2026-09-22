@@ -1004,37 +1004,99 @@ ggsave(
 
 # IMMUNE-RESPONSE PANEL SEPARATED BY SEX
 
-# Prepare the WBC plot
+# Prepare and label the WBC plot
 p_wbc_supp_panel_tagged <- p_wbc_sex +
   scale_y_continuous(
     breaks = scales::pretty_breaks(n = 7),
     expand = expansion(mult = c(0.02, 0.08))
   ) +
   coord_cartesian(
-    ylim = c(0, NA)
+    ylim = c(0, NA),
+    clip = "off"
   ) +
   labs(
+    tag = "A",
     x = "Fluoxetine treatment",
     y = "Total white blood cells",
     colour = "Sex",
     fill = "Sex"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+
+    # Position panel letter
+    plot.tag = element_text(
+      size = 18,
+      face = "bold",
+      hjust = 0,
+      vjust = 1
+    ),
+    plot.tag.position = c(0.01, 0.99),
+
+    axis.title = element_text(
+      size = 15
+    ),
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    ),
+
+    # Extra space prevents the panel letter from being clipped
+    plot.margin = margin(
+      t = 18,
+      r = 10,
+      b = 10,
+      l = 15
+    )
   )
 
-# Prepare the N:L-ratio plot
+
+# Prepare and label the N:L-ratio plot
 p_nl_supp_panel_tagged <- p_nl_sex +
   scale_y_continuous(
     breaks = scales::pretty_breaks(n = 7),
     expand = expansion(mult = c(0.02, 0.08))
   ) +
   coord_cartesian(
-    ylim = c(0, NA)
+    ylim = c(0, NA),
+    clip = "off"
   ) +
   labs(
+    tag = "B",
     x = "Fluoxetine treatment",
     y = "Neutrophil:lymphocyte ratio",
     colour = "Sex",
     fill = "Sex"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+
+    # Position panel letter
+    plot.tag = element_text(
+      size = 18,
+      face = "bold",
+      hjust = 0,
+      vjust = 1
+    ),
+    plot.tag.position = c(0.01, 0.99),
+
+    axis.title = element_text(
+      size = 15
+    ),
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    ),
+
+    # Extra space prevents the panel letter from being clipped
+    plot.margin = margin(
+      t = 18,
+      r = 10,
+      b = 10,
+      l = 15
+    )
   )
+
 
 # Combine plots and collect the identical sex legends
 immune_panel_sex <- (
@@ -1045,8 +1107,6 @@ immune_panel_sex <- (
     guides = "collect"
   ) &
   theme(
-    panel.grid = element_blank(),
-
     # Place the shared legend at the upper-right
     legend.position = "top",
     legend.justification = "right",
@@ -1055,32 +1115,14 @@ immune_panel_sex <- (
     legend.title = element_text(
       size = 13
     ),
-
     legend.text = element_text(
       size = 12
     ),
-
     legend.margin = margin(
       t = 0,
       r = 10,
       b = 4,
       l = 0
-    ),
-
-    axis.title = element_text(
-      size = 15
-    ),
-
-    axis.text = element_text(
-      size = 13,
-      colour = "grey25"
-    ),
-
-    plot.margin = margin(
-      t = 12,
-      r = 10,
-      b = 10,
-      l = 10
     )
   )
 
