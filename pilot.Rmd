@@ -1,0 +1,1135 @@
+---
+title: "pilot"
+author: "Gabriel Melhado"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load libraries
+pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB, multcomp, multcompView)
+```
+
+
+```{r}
+# Read dataset
+data_pilot <- read.csv("data_pilot.csv")
+
+# Inspect the dataset
+head(data_pilot)
+str(data_pilot)
+
+```
+
+## Exploratory Data Analysis
+
+```{r}
+#Data structure
+glimpse(data_pilot)
+summary(data_pilot)
+colSums(is.na(data_pilot))
+
+```
+
+```{r}
+# Prepare variables
+data_pilot <- data_pilot %>%
+  mutate(
+    fish_id = factor(fish_id),
+
+    treatment = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS")
+    ),
+
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    ),
+
+    # Recalculate body-mass change from the original measurements
+    mass_change_g = body_mass2 - body_mass1,
+
+    mass_change_percent = (
+      (body_mass2 - body_mass1) / body_mass1
+    ) * 100,
+
+    # Standardised pre-injection body mass
+    body_mass_before_sc = as.numeric(scale(body_mass1))
+  )
+
+```
+
+```{r}
+# Check variable structure
+str(data_pilot)
+
+# Number of fish in each treatment
+table(data_pilot$treatment)
+
+# Check for missing values
+colSums(is.na(data_pilot))
+
+# Check the recalculated body-mass changes
+head(
+  data_pilot %>%
+    dplyr::select(
+      fish_id,
+      treatment,
+      body_mass1,
+      body_mass2,
+      mass_change_g,
+      mass_change_percent
+    )
+)
+
+```
+
+```{r}
+# Descriptive statistics by treatment
+descriptive_statistics <- data_pilot %>%
+  group_by(treatment) %>%
+  summarise(
+    n = n(),
+
+    body_mass_before_mean = mean(body_mass1, na.rm = TRUE),
+    body_mass_before_sd = sd(body_mass1, na.rm = TRUE),
+
+    body_mass_after_mean = mean(body_mass2, na.rm = TRUE),
+    body_mass_after_sd = sd(body_mass2, na.rm = TRUE),
+
+    mass_change_mean = mean(mass_change_g, na.rm = TRUE),
+    mass_change_sd = sd(mass_change_g, na.rm = TRUE),
+
+    mass_change_percent_mean = mean(
+      mass_change_percent,
+      na.rm = TRUE
+    ),
+    mass_change_percent_sd = sd(
+      mass_change_percent,
+      na.rm = TRUE
+    ),
+
+    wbc_mean = mean(wbc, na.rm = TRUE),
+    wbc_sd = sd(wbc, na.rm = TRUE),
+    wbc_median = median(wbc, na.rm = TRUE),
+    wbc_min = min(wbc, na.rm = TRUE),
+    wbc_max = max(wbc, na.rm = TRUE),
+
+    nl_ratio_mean = mean(nl_ratio, na.rm = TRUE),
+    nl_ratio_sd = sd(nl_ratio, na.rm = TRUE),
+    nl_ratio_median = median(nl_ratio, na.rm = TRUE),
+    nl_ratio_min = min(nl_ratio, na.rm = TRUE),
+    nl_ratio_max = max(nl_ratio, na.rm = TRUE),
+
+    .groups = "drop"
+  )
+
+descriptive_statistics
+```
+
+```{r}
+# Histograms of the response variables
+
+par(mfrow = c(2, 3))
+
+hist(
+  data_pilot$body_mass1,
+  main = "Body mass before",
+  xlab = "Body mass (g)",
+  col = "grey80",
+  border = "white"
+)
+
+hist(
+  data_pilot$body_mass2,
+  main = "Body mass after",
+  xlab = "Body mass (g)",
+  col = "grey80",
+  border = "white"
+)
+
+hist(
+  data_pilot$mass_change_g,
+  main = "Change in body mass",
+  xlab = "After − before (g)",
+  col = "grey80",
+  border = "white"
+)
+
+hist(
+  data_pilot$mass_change_percent,
+  main = "Percentage change in body mass",
+  xlab = "Body mass change (%)",
+  col = "grey80",
+  border = "white"
+)
+
+hist(
+  data_pilot$wbc,
+  main = "White blood cell count",
+  xlab = "Total white blood cells",
+  col = "grey80",
+  border = "white"
+)
+
+hist(
+  data_pilot$nl_ratio,
+  main = "N:L ratio",
+  xlab = "Neutrophil:lymphocyte ratio",
+  col = "grey80",
+  border = "white"
+)
+
+# Return the plotting window to the default
+par(mfrow = c(1, 1))
+```
+
+# Body mass - Analysis
+
+```{r}
+# Convert body mass data to long format
+mass_long <- data_pilot %>%
+  dplyr::select(
+    fish_id,
+    treatment,
+    treatment_plot,
+    body_mass1,
+    body_mass2
+  ) %>%
+  pivot_longer(
+    cols = c(body_mass1, body_mass2),
+    names_to = "time",
+    values_to = "body_mass"
+  ) %>%
+  mutate(
+    time = factor(
+      time,
+      levels = c("body_mass1", "body_mass2"),
+      labels = c("Before", "After")
+    )
+  )
+
+# Inspect the long-format dataset
+head(mass_long, 10)
+
+# Confirm the number of observations
+dim(mass_long)
+
+# Confirm that each fish has two measurements
+table(table(mass_long$fish_id))
+
+# Mean body mass by treatment and time
+mass_long %>%
+  group_by(treatment, time) %>%
+  summarise(
+    n = n(),
+    mean = mean(body_mass, na.rm = TRUE),
+    sd = sd(body_mass, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Log-transform body mass
+mass_long <- mass_long %>%
+  mutate(
+    log_body_mass = log(body_mass)
+  )
+
+# Visualise the transformed variable
+hist(
+  mass_long$log_body_mass,
+  main = "Log-transformed body mass",
+  xlab = "log(body mass)",
+  col = "grey80",
+  border = "white"
+)
+```
+
+```{r}
+# Final log-transformed model retaining the interaction
+m_mass_log_final <- lmer(
+  log_body_mass ~ time * treatment + (1 | fish_id),
+  data = mass_long,
+  REML = TRUE
+)
+
+# Inspect the final model
+summary(m_mass_log_final)
+
+# Overall tests
+anova(
+  m_mass_log_final,
+  type = 3
+)
+```
+
+```{r}
+# Simulated residuals
+res_mass_log <- simulateResiduals(
+  fittedModel = m_mass_log_final,
+  n = 1000
+)
+
+# General diagnostic plot
+plot(res_mass_log)
+
+# Individual diagnostic tests
+testUniformity(res_mass_log)
+
+testDispersion(res_mass_log)
+
+testOutliers(res_mass_log)
+
+# Residuals by treatment
+plotResiduals(
+  res_mass_log,
+  form = mass_long$treatment
+)
+
+# Residuals by time
+plotResiduals(
+  res_mass_log,
+  form = mass_long$time
+)
+```
+
+
+```{r}
+# Final body-mass model
+# Writing log() directly allows emmeans to back-transform the results
+m_mass_log_final <- lmer(
+  log(body_mass) ~ time * treatment + (1 | fish_id),
+  data = mass_long,
+  REML = TRUE
+)
+
+summary(m_mass_log_final)
+```
+
+```{r}
+# Estimated marginal means for time within each treatment
+emm_mass_log <- emmeans(
+  m_mass_log_final,
+  ~ time | treatment
+)
+
+# Results on the original body-mass scale
+summary(
+  emm_mass_log,
+  type = "response"
+)
+
+# After-to-before ratio within each treatment
+mass_change_log <- contrast(
+  emm_mass_log,
+  method = list(
+    "After / Before" = c(-1, 1)
+  )
+)
+
+# Back-transform the estimates into ratios
+summary(
+  mass_change_log,
+  type = "response",
+  infer = c(TRUE, TRUE),
+  adjust = "sidak"
+)
+```
+
+```{r}
+# Convert ratios into percentage changes
+mass_change_percent <- as.data.frame(
+  summary(
+    mass_change_log,
+    type = "response",
+    infer = c(TRUE, TRUE),
+    adjust = "sidak"
+  )
+) %>%
+  mutate(
+    percent_change = (ratio - 1) * 100,
+    lower_percent = (lower.CL - 1) * 100,
+    upper_percent = (upper.CL - 1) * 100
+  )
+
+mass_change_percent
+```
+
+```{r}
+# Direct comparisons among treatment-specific mass changes
+mass_change_comparisons <- pairs(
+  mass_change_log,
+  by = NULL,
+  reverse = TRUE,
+  adjust = "tukey"
+)
+
+# Results on the response scale
+summary(
+  mass_change_comparisons,
+  type = "response",
+  infer = c(TRUE, TRUE)
+)
+```
+
+```{r}
+# Colour palette matching the main manuscript
+pastel_cols <- c(
+  "No injection" = "#A8D5BA",
+  "PBS" = "#F9E79F",
+  "LPS" = "#F5B7B1"
+)
+
+dark_cols <- c(
+  "No injection" = "#2E8B57",
+  "PBS" = "#C9A227",
+  "LPS" = "#B22222"
+)
+
+# Estimated geometric means and 95% confidence intervals
+emm_mass_plot <- as.data.frame(
+  summary(
+    emm_mass_log,
+    type = "response"
+  )
+) %>%
+  mutate(
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    ),
+    time = factor(
+      time,
+      levels = c("Before", "After")
+    )
+  )
+
+# Prepare raw data for plotting
+mass_long <- mass_long %>%
+  mutate(
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    ),
+    time = factor(
+      time,
+      levels = c("Before", "After")
+    )
+  )
+
+# Body-mass figure
+p_mass_pilot <- ggplot(
+  mass_long,
+  aes(
+    x = time,
+    y = body_mass
+  )
+) +
+
+  # Paired trajectories for each fish
+  geom_line(
+    aes(group = fish_id),
+    colour = "grey50",
+    alpha = 0.30,
+    linewidth = 0.4
+  ) +
+
+  # Raw-data boxplots
+  geom_boxplot(
+    aes(fill = treatment_plot),
+    width = 0.50,
+    alpha = 0.25,
+    colour = "black",
+    outlier.shape = NA
+  ) +
+
+  # Individual observations
+  geom_point(
+    aes(colour = treatment_plot),
+    position = position_jitter(
+      width = 0.05,
+      height = 0,
+      seed = 123
+    ),
+    alpha = 0.60,
+    size = 2
+  ) +
+
+  # Model-estimated geometric means and 95% CIs
+  geom_errorbar(
+    data = emm_mass_plot,
+    aes(
+      x = time,
+      ymin = lower.CL,
+      ymax = upper.CL,
+      colour = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    width = 0.10,
+    linewidth = 1.1
+  ) +
+
+  geom_point(
+    data = emm_mass_plot,
+    aes(
+      x = time,
+      y = response,
+      fill = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    shape = 21,
+    size = 4.5,
+    stroke = 1.1,
+    colour = "black"
+  ) +
+
+  facet_wrap(
+    ~ treatment_plot,
+    nrow = 1
+  ) +
+
+  scale_colour_manual(
+    values = dark_cols
+  ) +
+
+  scale_fill_manual(
+    values = pastel_cols
+  ) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(6),
+    expand = expansion(
+      mult = c(0.03, 0.07)
+    )
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Body mass (g)"
+  ) +
+
+  theme_bw(
+    base_size = 14
+  ) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(
+      size = 14,
+      face = "bold"
+    ),
+    axis.title = element_text(
+      size = 15
+    ),
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    )
+  )
+
+p_mass_pilot
+
+# Save as vector PDF
+ggsave(
+  here("figures", "pilot_body_mass.pdf"),
+  p_mass_pilot,
+  width = 8,
+  height = 4.8
+)
+
+# Save as high-resolution JPEG
+ggsave(
+  here("figures", "pilot_body_mass.jpg"),
+  p_mass_pilot,
+  width = 8,
+  height = 4.8,
+  dpi = 600
+)
+```
+
+# Immune response - Analysis
+## WBC
+
+```{r}
+# WBC model
+m_wbc <- glmmTMB(
+  wbc ~ treatment + body_mass_before_sc,
+  family = Gamma(link = "log"),
+  data = data_pilot
+)
+
+# Inspect the model
+summary(m_wbc)
+
+# Overall tests of treatment and initial body mass
+Anova(
+  m_wbc,
+  type = "II")
+```
+
+```{r}
+# Simulate residuals from the WBC model
+res_wbc <- simulateResiduals(
+  fittedModel = m_wbc,
+  n = 1000
+)
+
+# General diagnostic plot
+plot(res_wbc)
+
+# Test residual uniformity
+testUniformity(res_wbc)
+
+# Test overdispersion or underdispersion
+testDispersion(res_wbc)
+
+# Test for an unusual number of outliers
+testOutliers(res_wbc)
+
+# Residuals by treatment
+plotResiduals(
+  res_wbc,
+  form = data_pilot$treatment
+)
+
+# Residuals in relation to initial body mass
+plotResiduals(
+  res_wbc,
+  form = data_pilot$body_mass_before_sc
+)
+
+# Model convergence checks
+m_wbc$fit$convergence
+
+m_wbc$sdr$pdHess
+```
+
+
+```{r}
+# Estimated marginal means for WBC
+emm_wbc <- emmeans(
+  m_wbc,
+  ~ treatment,
+  at = list(
+    body_mass_before_sc = 0
+  ),
+  type = "response"
+)
+
+emm_wbc
+
+# Tukey-adjusted pairwise comparisons
+wbc_comparisons <- pairs(
+  emm_wbc,
+  reverse = TRUE,
+  adjust = "tukey"
+)
+
+summary(
+  wbc_comparisons,
+  type = "response",
+  infer = c(TRUE, TRUE)
+)
+
+```
+
+```{r}
+# Convert treatment ratios into percentage differences
+wbc_comparisons_percent <- as.data.frame(
+  summary(
+    wbc_comparisons,
+    type = "response",
+    infer = c(TRUE, TRUE)
+  )
+) %>%
+  mutate(
+    percent_difference = (ratio - 1) * 100,
+    lower_percent = (asymp.LCL - 1) * 100,
+    upper_percent = (asymp.UCL - 1) * 100
+  )
+
+wbc_comparisons_percent
+```
+
+```{r}
+# Tukey compact-letter display
+wbc_letters <- multcomp::cld(
+  emm_wbc,
+  adjust = "tukey",
+  Letters = letters,
+  type = "response",
+  sort = FALSE
+) %>%
+  as.data.frame() %>%
+  mutate(
+    .group = trimws(.group),
+
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    )
+  )
+
+wbc_letters
+
+# Prepare estimated means and confidence intervals
+emm_wbc_plot <- as.data.frame(
+  summary(
+    emm_wbc,
+    type = "response"
+  )
+) %>%
+  mutate(
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    )
+  )
+
+# Find the highest raw value within each treatment
+wbc_raw_max <- data_pilot %>%
+  group_by(treatment_plot) %>%
+  summarise(
+    raw_max = max(wbc, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+wbc_letters_plot <- wbc_letters %>%
+  dplyr::select(
+    treatment,
+    treatment_plot,
+    asymp.UCL,
+    .group
+  ) %>%
+  dplyr::left_join(
+    wbc_raw_max,
+    by = "treatment_plot"
+  ) %>%
+  dplyr::mutate(
+    letter_y = pmax(
+      asymp.UCL,
+      raw_max
+    ) + 12
+  )
+
+wbc_letters_plot
+
+# WBC boxplot with Tukey letters
+p_wbc_pilot <- ggplot(
+  data_pilot,
+  aes(
+    x = treatment_plot,
+    y = wbc
+  )
+) +
+
+  # Raw-data boxplots
+  geom_boxplot(
+    aes(fill = treatment_plot),
+    width = 0.55,
+    alpha = 0.25,
+    colour = "black",
+    outlier.shape = NA
+  ) +
+
+  # Individual fish
+  geom_point(
+    aes(colour = treatment_plot),
+    position = position_jitter(
+      width = 0.15,
+      height = 0,
+      seed = 123
+    ),
+    alpha = 0.60,
+    size = 2
+  ) +
+
+  # Model-estimated means and 95% confidence intervals
+  geom_errorbar(
+    data = emm_wbc_plot,
+    aes(
+      x = treatment_plot,
+      ymin = asymp.LCL,
+      ymax = asymp.UCL,
+      colour = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    width = 0.20,
+    linewidth = 1.1
+  ) +
+
+  # Model-estimated means
+  geom_point(
+    data = emm_wbc_plot,
+    aes(
+      x = treatment_plot,
+      y = response,
+      fill = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    shape = 21,
+    size = 4.5,
+    stroke = 1.1,
+    colour = "black"
+  ) +
+
+  # Tukey significance letters
+  geom_text(
+    data = wbc_letters_plot,
+    aes(
+      x = treatment_plot,
+      y = letter_y,
+      label = .group
+    ),
+    inherit.aes = FALSE,
+    size = 5,
+    fontface = "bold",
+    colour = "black"
+  ) +
+
+  scale_colour_manual(
+    values = dark_cols
+  ) +
+
+  scale_fill_manual(
+    values = pastel_cols
+  ) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(7),
+    expand = expansion(
+      mult = c(0, 0.10)
+    )
+  ) +
+
+  expand_limits(
+    y = c(
+      0,
+      max(wbc_letters_plot$letter_y) + 5
+    )
+  ) +
+
+  labs(
+    x = "Injection treatment",
+    y = "Total white blood cells"
+  ) +
+
+  theme_bw(
+    base_size = 14
+  ) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+    axis.title = element_text(
+      size = 15
+    ),
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    )
+  )
+
+p_wbc_pilot
+
+# Save WBC figure
+ggsave(
+  here("figures", "pilot_wbc.pdf"),
+  p_wbc_pilot,
+  width = 6,
+  height = 5
+)
+
+ggsave(
+  here("figures", "pilot_wbc.jpg"),
+  p_wbc_pilot,
+  width = 6,
+  height = 5,
+  dpi = 600
+)
+```
+
+## Neutrophil/lymphocyte ratio
+
+```{r}
+# N:L ratio model
+m_nl <- glmmTMB(
+  nl_ratio ~ treatment + body_mass_before_sc,
+  family = Gamma(link = "log"),
+  data = data_pilot
+)
+
+# Inspect the model
+summary(m_nl)
+
+# Overall tests of treatment and initial body mass
+Anova(
+  m_nl,
+  type = "II"
+)
+
+```
+
+```{r}
+set.seed(123)
+
+# Simulate scaled residuals from the N:L ratio model
+res_nl <- DHARMa::simulateResiduals(
+  fittedModel = m_nl,
+  n = 1000
+)
+
+# General diagnostic plot
+plot(res_nl)
+
+# Formal diagnostic tests
+DHARMa::testUniformity(res_nl)
+DHARMa::testDispersion(res_nl)
+DHARMa::testOutliers(res_nl)
+
+# Residuals by treatment
+DHARMa::plotResiduals(
+  res_nl,
+  form = data_pilot$treatment
+)
+
+# Residuals in relation to initial body mass
+DHARMa::plotResiduals(
+  res_nl,
+  form = data_pilot$body_mass_before_sc
+)
+```
+
+```{r}
+# Estimated marginal means for each treatment
+# body_mass_before_sc is held at its mean, which is zero after scaling
+emm_nl <- emmeans::emmeans(
+  m_nl,
+  ~ treatment,
+  type = "response"
+)
+
+# Display estimated means on the original N:L-ratio scale
+summary(
+  emm_nl,
+  type = "response",
+  infer = c(TRUE, TRUE)
+)
+
+# Pairwise treatment comparisons with Tukey adjustment
+nl_comparisons <- emmeans::contrast(
+  emm_nl,
+  method = "pairwise",
+  adjust = "tukey"
+)
+
+# Display comparisons as ratios
+summary(
+  nl_comparisons,
+  type = "response",
+  infer = c(TRUE, TRUE)
+)
+
+```
+
+```{r}
+# Obtain compact-letter display from Tukey comparisons
+nl_letters <- multcomp::cld(
+  emm_nl,
+  adjust = "tukey",
+  Letters = letters,
+  type = "response",
+  sort = FALSE
+) %>%
+  as.data.frame() %>%
+  dplyr::mutate(
+    .group = trimws(.group),
+
+    treatment_plot = factor(
+      treatment,
+      levels = c("NI", "PBS", "LPS"),
+      labels = c("No injection", "PBS", "LPS")
+    )
+  )
+
+# Check the assigned letters
+nl_letters
+
+
+# Maximum observed value within each treatment
+nl_raw_max <- data_pilot %>%
+  dplyr::group_by(treatment_plot) %>%
+  dplyr::summarise(
+    raw_max = max(nl_ratio, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Prepare model estimates and positions for the letters
+nl_letters_plot <- nl_letters %>%
+  dplyr::select(
+    treatment,
+    treatment_plot,
+    response,
+    asymp.LCL,
+    asymp.UCL,
+    .group
+  ) %>%
+  dplyr::left_join(
+    nl_raw_max,
+    by = "treatment_plot"
+  ) %>%
+  dplyr::mutate(
+    letter_y = pmax(
+      asymp.UCL,
+      raw_max
+    ) + 0.035
+  )
+
+
+# Check the final plotting table
+nl_letters_plot
+
+
+# N:L ratio figure
+p_nl_pilot <- ggplot(
+  data_pilot,
+  aes(
+    x = treatment_plot,
+    y = nl_ratio
+  )
+) +
+
+  # Raw-data boxplots
+  geom_boxplot(
+    aes(fill = treatment_plot),
+    width = 0.55,
+    alpha = 0.35,
+    colour = "black",
+    outlier.shape = NA
+  ) +
+
+  # Individual observations
+  geom_point(
+    aes(colour = treatment_plot),
+    position = position_jitter(
+      width = 0.10,
+      height = 0,
+      seed = 123
+    ),
+    alpha = 0.70,
+    size = 2.2
+  ) +
+
+  # Model-estimated means and 95% confidence intervals
+  geom_errorbar(
+    data = nl_letters_plot,
+    aes(
+      x = treatment_plot,
+      ymin = asymp.LCL,
+      ymax = asymp.UCL,
+      colour = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    width = 0.10,
+    linewidth = 1.1
+  ) +
+
+  geom_point(
+    data = nl_letters_plot,
+    aes(
+      x = treatment_plot,
+      y = response,
+      fill = treatment_plot
+    ),
+    inherit.aes = FALSE,
+    shape = 21,
+    size = 4.5,
+    stroke = 1.1,
+    colour = "black"
+  ) +
+
+  # Significance letters
+  geom_text(
+    data = nl_letters_plot,
+    aes(
+      x = treatment_plot,
+      y = letter_y,
+      label = .group
+    ),
+    inherit.aes = FALSE,
+    size = 5.5,
+    fontface = "bold",
+    colour = "black"
+  ) +
+
+  scale_colour_manual(
+    values = dark_cols
+  ) +
+
+  scale_fill_manual(
+    values = pastel_cols
+  ) +
+
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(6),
+    expand = expansion(
+      mult = c(0.03, 0.12)
+    )
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Neutrophil:lymphocyte ratio"
+  ) +
+
+  theme_bw(
+    base_size = 14
+  ) +
+
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+
+    axis.title = element_text(
+      size = 15
+    ),
+
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    )
+  )
+
+
+# Display the figure
+p_nl_pilot
+
+# Save figure
+ggsave(
+  here("figures", "pilot_nl.ratio.pdf"),
+  p_nl_pilot,
+  width = 6,
+  height = 5
+)
+
+ggsave(
+  here("figures", "pilot_nl.ratio.jpg"),
+  p_nl_pilot,
+  width = 6,
+  height = 5,
+  dpi = 600
+)
+```
+

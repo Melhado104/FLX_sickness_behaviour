@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 # Load libraries
-pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB)
+pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB, patchwork)
 ```
 
 ```{r}
@@ -1763,7 +1763,214 @@ ggsave(
 ```
 
 
+```{r}
 
+# Behavioural panel without separation by sex
+
+# Replace hard axis limits so observations are not removed
+p_distance_panel <- p_distance +
+  scale_y_continuous(
+    breaks = seq(0, 4500, by = 1000),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 4500)
+  )
+
+p_freezing_panel <- p_freezing +
+  scale_y_continuous(
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 1200)
+  )
+
+p_refuge_panel <- p_refuge +
+  scale_y_continuous(
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 1250)
+  )
+
+p_velocity_panel <- p_velocity +
+  scale_y_continuous(
+    breaks = seq(0, 4, by = 0.5)
+  ) +
+  coord_cartesian(
+    ylim = c(0, 4)
+  )
+
+
+# Remove repeated x-axis titles from the upper panels
+p_distance_panel <- p_distance_panel +
+  labs(x = NULL)
+
+p_freezing_panel <- p_freezing_panel +
+  labs(x = NULL)
+
+
+# Combine the four behavioural responses
+behaviour_panel_treatment <-
+  (
+    p_distance_panel +
+    p_freezing_panel
+  ) /
+  (
+    p_refuge_panel +
+    p_velocity_panel
+  ) +
+  patchwork::plot_annotation(
+    tag_levels = "A"
+  ) &
+  theme(
+    plot.tag = element_text(
+      size = 17,
+      face = "bold"
+    )
+  )
+
+
+# Display panel
+behaviour_panel_treatment
+
+# Save as PDF
+ggsave(
+  filename = here::here(
+    "figures",
+    "behaviour_panel_treatment.pdf"
+  ),
+  plot = behaviour_panel_treatment,
+  width = 11,
+  height = 9,
+  units = "in",
+  bg = "white"
+)
+
+# Save as high-resolution JPG
+ggsave(
+  filename = here::here(
+    "figures",
+    "behaviour_panel_treatment.jpg"
+  ),
+  plot = behaviour_panel_treatment,
+  width = 11,
+  height = 9,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+```
+
+
+```{r}
+
+# Behavioural panel separated by sex
+
+# Replace hard axis limits so observations are not removed
+p_distance_sex_panel <- p_distance_int_side +
+  scale_y_continuous(
+    breaks = seq(0, 4500, by = 1000),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 4500)
+  )
+
+p_freezing_sex_panel <- p_freezing_int_side +
+  scale_y_continuous(
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 1200)
+  )
+
+p_refuge_sex_panel <- p_refuge_int_side +
+  scale_y_continuous(
+    breaks = seq(0, 1200, by = 200),
+    labels = scales::comma
+  ) +
+  coord_cartesian(
+    ylim = c(0, 1250)
+  )
+
+p_velocity_sex_panel <- p_velocity_int_side +
+  scale_y_continuous(
+    breaks = seq(0, 4, by = 0.5)
+  ) +
+  coord_cartesian(
+    ylim = c(0, 4)
+  )
+
+
+# Remove repeated x-axis titles from the upper panels
+p_distance_sex_panel <- p_distance_sex_panel +
+  labs(x = NULL)
+
+p_freezing_sex_panel <- p_freezing_sex_panel +
+  labs(x = NULL)
+
+
+# Combine plots and collect the sex legends
+behaviour_panel_sex <-
+  (
+    p_distance_sex_panel +
+    p_freezing_sex_panel
+  ) /
+  (
+    p_refuge_sex_panel +
+    p_velocity_sex_panel
+  ) +
+  patchwork::plot_layout(
+    guides = "collect"
+  ) +
+  patchwork::plot_annotation(
+    tag_levels = "A"
+  ) &
+  theme(
+    legend.position = "top",
+    plot.tag = element_text(
+      size = 17,
+      face = "bold"
+    )
+  )
+
+
+# Display panel
+behaviour_panel_sex
+
+# Save as PDF
+ggsave(
+  filename = here::here(
+    "figures",
+    "behaviour_panel_sex.pdf"
+  ),
+  plot = behaviour_panel_sex,
+  width = 12,
+  height = 9,
+  units = "in",
+  bg = "white"
+)
+
+# Save as high-resolution JPG
+ggsave(
+  filename = here::here(
+    "figures",
+    "behaviour_panel_sex.jpg"
+  ),
+  plot = behaviour_panel_sex,
+  width = 12,
+  height = 9,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+```
 
 
 

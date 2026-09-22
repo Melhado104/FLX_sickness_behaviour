@@ -100,7 +100,7 @@ data <- data %>%
 # Create long-format dataset for repeated body mass
 
 mass_long <- data %>%
-  select(
+  dplyr::select(
     fish_id,
     tank_id,
     treatment,
@@ -598,6 +598,23 @@ p_mass_sex <- ggplot() +
   )
 
 print(p_mass_sex)
+
+# Save
+
+ggsave(
+  filename = here("figures", "body_mass_before_after_LPS_sex.pdf"),
+  plot = p_mass_sex,
+  width = 8,
+  height = 4.8
+)
+
+ggsave(
+  filename = here("figures", "body_mass_before_after_LPS_sex.jpg"),
+  plot = p_mass_sex,
+  width = 8,
+  height = 4.8,
+  dpi = 600
+)
 
 ```
 

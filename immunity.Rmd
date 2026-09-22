@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 # Load libraries
-pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB)
+pacman::p_load(car, dplyr, ggplot2, scales, here, tidyr, tidyverse, lme4,lmerTest,emmeans, performance, broom.mixed, DHARMa, ggpubr, psych, glmmTMB, patchwork)
 ```
 
 ```{r}
@@ -899,4 +899,221 @@ ggsave(
   dpi = 600
 )
 ```
+
+```{r}
+
+# IMMUNE-RESPONSE PANEL WITHOUT SEX SEPARATION
+
+# Remove the previous hard upper limit of 80 from the WBC plot.
+# This ensures that all raw WBC observations are retained.
+p_wbc_main_panel <- p_wbc +
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(n = 7),
+    expand = expansion(mult = c(0.02, 0.08))
+  ) +
+  coord_cartesian(
+    ylim = c(0, NA)
+  ) +
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Total white blood cells"
+  )
+
+# Prepare the N:L-ratio plot with matching formatting
+p_nl_main_panel <- p_nl +
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(n = 7),
+    expand = expansion(mult = c(0.02, 0.08))
+  ) +
+  coord_cartesian(
+    ylim = c(0, NA)
+  ) +
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Neutrophil:lymphocyte ratio"
+  )
+
+# Combine the two immune-response figures
+immune_panel_main <- (
+  p_wbc_main_panel |
+  p_nl_main_panel
+) +
+  plot_annotation(
+    tag_levels = "A"
+  ) &
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none",
+
+    plot.tag = element_text(
+      size = 18,
+      face = "bold"
+    ),
+
+    plot.tag.position = c(0, 1),
+
+    axis.title = element_text(
+      size = 15
+    ),
+
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    ),
+
+    plot.margin = margin(
+      t = 10,
+      r = 10,
+      b = 10,
+      l = 10
+    )
+  )
+
+# Display the complete panel
+immune_panel_main
+
+# Save as PDF for the manuscript
+ggsave(
+  filename = here::here(
+    "figures",
+    "immune_responses_main_panel.pdf"
+  ),
+  plot = immune_panel_main,
+  width = 12,
+  height = 5.5,
+  units = "in",
+  device = cairo_pdf
+)
+
+# Save a high-resolution JPG version
+ggsave(
+  filename = here::here(
+    "figures",
+    "immune_responses_main_panel.jpg"
+  ),
+  plot = immune_panel_main,
+  width = 12,
+  height = 5.5,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+```
+
+```{r}
+
+# IMMUNE-RESPONSE PANEL SEPARATED BY SEX
+
+# Prepare the WBC plot
+p_wbc_supp_panel_tagged <- p_wbc_sex +
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(n = 7),
+    expand = expansion(mult = c(0.02, 0.08))
+  ) +
+  coord_cartesian(
+    ylim = c(0, NA)
+  ) +
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Total white blood cells",
+    colour = "Sex",
+    fill = "Sex"
+  )
+
+# Prepare the N:L-ratio plot
+p_nl_supp_panel_tagged <- p_nl_sex +
+  scale_y_continuous(
+    breaks = scales::pretty_breaks(n = 7),
+    expand = expansion(mult = c(0.02, 0.08))
+  ) +
+  coord_cartesian(
+    ylim = c(0, NA)
+  ) +
+  labs(
+    x = "Fluoxetine treatment",
+    y = "Neutrophil:lymphocyte ratio",
+    colour = "Sex",
+    fill = "Sex"
+  )
+
+# Combine plots and collect the identical sex legends
+immune_panel_sex <- (
+  p_wbc_supp_panel_tagged |
+  p_nl_supp_panel_tagged
+) +
+  patchwork::plot_layout(
+    guides = "collect"
+  ) &
+  theme(
+    panel.grid = element_blank(),
+
+    # Place the shared legend at the upper-right
+    legend.position = "top",
+    legend.justification = "right",
+    legend.box.just = "right",
+
+    legend.title = element_text(
+      size = 13
+    ),
+
+    legend.text = element_text(
+      size = 12
+    ),
+
+    legend.margin = margin(
+      t = 0,
+      r = 10,
+      b = 4,
+      l = 0
+    ),
+
+    axis.title = element_text(
+      size = 15
+    ),
+
+    axis.text = element_text(
+      size = 13,
+      colour = "grey25"
+    ),
+
+    plot.margin = margin(
+      t = 12,
+      r = 10,
+      b = 10,
+      l = 10
+    )
+  )
+
+
+# Display the complete supplementary panel
+immune_panel_sex
+
+# Save as PDF
+ggsave(
+  filename = here::here(
+    "figures",
+    "immune_responses_by_sex_supplementary.pdf"
+  ),
+  plot = immune_panel_sex,
+  width = 12,
+  height = 5.8,
+  units = "in",
+  device = cairo_pdf
+)
+
+# Save as high-resolution JPG
+ggsave(
+  filename = here::here(
+    "figures",
+    "immune_responses_by_sex_supplementary.jpg"
+  ),
+  plot = immune_panel_sex,
+  width = 12,
+  height = 5.8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+```
+
 
